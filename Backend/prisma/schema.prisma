@@ -1,0 +1,484 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ───────────────────────────── Enums ─────────────────────────────
+
+enum UserStatus {
+  ACTIVE
+  BLOCKED
+}
+
+enum RoleName {
+  SUPER_ADMIN
+  ADMIN
+  SUPPORT
+  PLAYER
+}
+
+enum TxType {
+  WELCOME_BONUS
+  GAME_ENTRY
+  GAME_WIN
+  GAME_LOSS
+  REFUND
+  ADMIN_CREDIT
+  ADMIN_DEBIT
+  TOURNAMENT_ENTRY
+  TOURNAMENT_REWARD
+  REFERRAL_BONUS
+}
+
+enum TxDirection {
+  CREDIT
+  DEBIT
+}
+
+enum RoomVisibility {
+  PUBLIC
+  PRIVATE
+}
+
+enum RoomStatus {
+  WAITING
+  IN_GAME
+  COMPLETED
+  CANCELLED
+}
+
+enum GameStatus {
+  ACTIVE
+  FINISHED
+  CANCELLED
+}
+
+enum GamePlayerStatus {
+  PLAYING
+  LEFT
+  FINISHED
+}
+
+enum TournamentStatus {
+  UPCOMING
+  RUNNING
+  COMPLETED
+  CANCELLED
+}
+
+enum TournamentPlayerStatus {
+  REGISTERED
+  ACTIVE
+  ELIMINATED
+  WINNER
+}
+
+enum MatchStatus {
+  PENDING
+  READY
+  IN_PROGRESS
+  COMPLETED
+  BYE
+}
+
+enum ReferralStatus {
+  PENDING
+  REWARDED
+}
+
+// ───────────────────────────── Users ─────────────────────────────
+
+model User {
+  id                  String     @id @default(cuid())
+  /// Player identity. Null for staff accounts that sign in with username/password.
+  mobile              String?    @unique
+  /// Staff sign-in name. Null for players.
+  username            String?    @unique
+  passwordHash        String?
+  status              UserStatus @default(ACTIVE)
+  referralCode        String     @unique
+  /// Guards the one-time welcome bonus (flipped atomically with the credit).
+  welcomeBonusGranted Boolean    @default(false)
+  lastLoginAt         DateTime?
+  lastSeenAt          DateTime?
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+
+  profile           UserProfile?
+  wallet            Wallet?
+  roles             UserRole[]
+  transactions      WalletTransaction[]
+  roomsHosted       GameRoom[]
+  roomSeats         RoomPlayer[]
+  gameSeats         GamePlayer[]
+  gameResults       GameResult[]
+  tournamentEntries TournamentPlayer[]
+  referralsMade     Referral[]          @relation("Referrer")
+  referredBy        Referral?           @relation("Referee")
+  notifications     Notification[]
+  auditLogs         AdminAuditLog[]
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model UserProfile {
+  userId       String   @id
+  displayName  String
+  avatar       String   @default("a1")
+  soundEnabled Boolean  @default(true)
+  theme        String   @default("auto")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Role {
+  id    Int        @id @default(autoincrement())
+  name  RoleName   @unique
+  users UserRole[]
+}
+
+model UserRole {
+  userId String
+  roleId Int
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+}
+
+// ───────────────────────────── Wallet ─────────────────────────────
+
+/// Virtual, non-transferable points. `balance` is spendable, `locked` is held in
+/// escrow by running games. CHECK constraints (see migration) keep both >= 0.
+model Wallet {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  balance     Int      @default(0)
+  locked      Int      @default(0)
+  totalEarned Int      @default(0)
+  totalSpent  Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions WalletTransaction[]
+}
+
+/// Append-only ledger. `idempotencyKey` makes every business event (bonus, entry,
+/// settlement, refund …) apply at most once.
+model WalletTransaction {
+  id             String      @id @default(cuid())
+  walletId       String
+  userId         String
+  type           TxType
+  direction      TxDirection
+  amount         Int
+  balanceAfter   Int
+  lockedAfter    Int
+  idempotencyKey String      @unique
+  refType        String?
+  refId          String?
+  note           String?
+  createdById    String?
+  createdAt      DateTime    @default(now())
+
+  wallet Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([userId, type, createdAt])
+  @@index([refType, refId])
+}
+
+// ───────────────────────────── Games ─────────────────────────────
+
+model GameMode {
+  id             Int      @id @default(autoincrement())
+  /// Stable identifier that selects the rules engine preset (CLASSIC, SCORE …).
+  key            String   @unique
+  name           String
+  tagline        String   @default("")
+  description    String   @default("")
+  isActive       Boolean  @default(true)
+  minEntry       Int      @default(0)
+  maxEntry       Int      @default(10000)
+  allowedPlayers Int[]    @default([2, 4])
+  /// Overrides merged on top of the engine preset for `key`.
+  rules          Json     @default("{}")
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  rooms       GameRoom[]
+  games       Game[]
+  tournaments Tournament[]
+}
+
+model GameRoom {
+  id            String         @id @default(cuid())
+  code          String         @unique
+  name          String
+  modeId        Int
+  hostId        String
+  maxPlayers    Int
+  entryPoints   Int
+  visibility    RoomVisibility @default(PRIVATE)
+  /// Created by public matchmaking: starts automatically when full.
+  isMatchmaking Boolean        @default(false)
+  status        RoomStatus     @default(WAITING)
+  expiresAt     DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  mode    GameMode     @relation(fields: [modeId], references: [id])
+  host    User         @relation(fields: [hostId], references: [id])
+  players RoomPlayer[]
+  game    Game?
+
+  @@index([status, visibility])
+  @@index([status, isMatchmaking, modeId, maxPlayers, entryPoints])
+  @@index([hostId])
+}
+
+model RoomPlayer {
+  id       String   @id @default(cuid())
+  roomId   String
+  userId   String
+  seat     Int
+  isReady  Boolean  @default(false)
+  joinedAt DateTime @default(now())
+
+  room GameRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+  @@unique([roomId, seat])
+  @@index([userId])
+}
+
+model Game {
+  id               String     @id @default(cuid())
+  roomId           String?    @unique
+  tournamentMatchId String?   @unique
+  modeId           Int
+  status           GameStatus @default(ACTIVE)
+  playerCount      Int
+  entryPoints      Int
+  /// Sum of all entries held in escrow.
+  pool             Int
+  commissionPct    Int        @default(0)
+  commissionAmount Int        @default(0)
+  cancelReason     String?
+  startedAt        DateTime   @default(now())
+  endedAt          DateTime?
+  /// Set exactly once by the settlement/refund transaction.
+  settledAt        DateTime?
+
+  room            GameRoom?        @relation(fields: [roomId], references: [id])
+  tournamentMatch TournamentMatch? @relation(fields: [tournamentMatchId], references: [id])
+  mode            GameMode         @relation(fields: [modeId], references: [id])
+  players         GamePlayer[]
+  state           GameState?
+  moves           GameMove[]
+  results         GameResult[]
+
+  @@index([status, startedAt])
+  @@index([modeId])
+}
+
+model GamePlayer {
+  id        String           @id @default(cuid())
+  gameId    String
+  userId    String
+  seat      Int
+  color     String
+  entryPaid Int
+  status    GamePlayerStatus @default(PLAYING)
+  createdAt DateTime         @default(now())
+
+  game Game @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([gameId, userId])
+  @@unique([gameId, seat])
+  @@index([userId, createdAt])
+}
+
+/// Latest authoritative engine snapshot; lets players reconnect and the server
+/// resume games after a restart.
+model GameState {
+  gameId    String   @id
+  state     Json
+  version   Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  game Game @relation(fields: [gameId], references: [id], onDelete: Cascade)
+}
+
+model GameMove {
+  id        BigInt   @id @default(autoincrement())
+  gameId    String
+  seq       Int
+  seat      Int
+  userId    String?
+  type      String
+  payload   Json
+  createdAt DateTime @default(now())
+
+  game Game @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
+  @@unique([gameId, seq])
+}
+
+model GameResult {
+  id        String   @id @default(cuid())
+  gameId    String
+  userId    String
+  rank      Int
+  isWinner  Boolean
+  score     Int      @default(0)
+  entryPaid Int
+  pointsWon Int      @default(0)
+  createdAt DateTime @default(now())
+
+  game Game @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id])
+
+  @@unique([gameId, userId])
+  @@index([userId, createdAt])
+  @@index([createdAt, isWinner])
+}
+
+// ───────────────────────────── Tournaments ─────────────────────────────
+
+model Tournament {
+  id           String           @id @default(cuid())
+  name         String
+  description  String           @default("")
+  modeId       Int
+  entryPoints  Int
+  capacity     Int
+  /// Percentages of the prize pool by final rank, e.g. [70, 30].
+  prizeSplit   Json             @default("[70, 30]")
+  /// Points added to the pool by the platform on top of the entries.
+  bonusPool    Int              @default(0)
+  status       TournamentStatus @default(UPCOMING)
+  startsAt     DateTime
+  startedAt    DateTime?
+  endedAt      DateTime?
+  totalRounds  Int              @default(0)
+  currentRound Int              @default(0)
+  winnerId     String?
+  createdById  String?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  mode    GameMode           @relation(fields: [modeId], references: [id])
+  players TournamentPlayer[]
+  matches TournamentMatch[]
+
+  @@index([status, startsAt])
+}
+
+model TournamentPlayer {
+  id           String                 @id @default(cuid())
+  tournamentId String
+  userId       String
+  status       TournamentPlayerStatus @default(REGISTERED)
+  finalRank    Int?
+  prize        Int                    @default(0)
+  createdAt    DateTime               @default(now())
+
+  tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id])
+
+  @@unique([tournamentId, userId])
+  @@index([userId])
+}
+
+model TournamentMatch {
+  id           String      @id @default(cuid())
+  tournamentId String
+  round        Int
+  index        Int
+  player1Id    String?
+  player2Id    String?
+  winnerId     String?
+  status       MatchStatus @default(PENDING)
+  scheduledAt  DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime    @default(now())
+
+  tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  game       Game?
+
+  @@unique([tournamentId, round, index])
+  @@index([status])
+}
+
+// ───────────────────────────── Misc ─────────────────────────────
+
+model Referral {
+  id             String         @id @default(cuid())
+  referrerId     String
+  /// A user can be referred at most once.
+  refereeId      String         @unique
+  code           String
+  status         ReferralStatus @default(PENDING)
+  referrerReward Int            @default(0)
+  refereeReward  Int            @default(0)
+  rewardedAt     DateTime?
+  createdAt      DateTime       @default(now())
+
+  referrer User @relation("Referrer", fields: [referrerId], references: [id])
+  referee  User @relation("Referee", fields: [refereeId], references: [id])
+
+  @@index([referrerId])
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  type      String
+  title     String
+  body      String
+  data      Json?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+model AdminAuditLog {
+  id         String   @id @default(cuid())
+  adminId    String
+  action     String
+  targetType String?
+  targetId   String?
+  details    Json?
+  ip         String?
+  createdAt  DateTime @default(now())
+
+  admin User @relation(fields: [adminId], references: [id])
+
+  @@index([createdAt])
+  @@index([adminId])
+  @@index([targetType, targetId])
+}
+
+model AppSetting {
+  key         String   @id
+  value       Json
+  description String   @default("")
+  updatedById String?
+  updatedAt   DateTime @updatedAt
+}
