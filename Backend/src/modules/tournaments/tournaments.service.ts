@@ -58,10 +58,10 @@ export async function registerForTournament(userId: string, tournamentId: string
     const t = await tx.tournament.findUnique({ where: { id: tournamentId }, include: { _count: { select: { players: true } } } });
     if (!t) throw notFound('Tournament');
     if (t.status !== 'UPCOMING' || t.startsAt <= new Date()) throw conflict('REGISTRATION_CLOSED', 'Registration is closed');
-    if (t._count.players >= t.capacity) throw conflict('TOURNAMENT_FULL', 'This tournament is full');
     if (await tx.tournamentPlayer.findUnique({ where: { tournamentId_userId: { tournamentId, userId } } })) {
       throw conflict('ALREADY_REGISTERED', 'You are already registered');
     }
+    if (t._count.players >= t.capacity) throw conflict('TOURNAMENT_FULL', 'This tournament is full');
     const tp = await tx.tournamentPlayer.create({ data: { tournamentId, userId } });
     if (t.entryPoints > 0) {
       await debit(tx, userId, t.entryPoints, 'TOURNAMENT_ENTRY', `tournament:${tournamentId}:entry:${tp.id}`, { refType: 'tournament', refId: tournamentId, note: t.name });
