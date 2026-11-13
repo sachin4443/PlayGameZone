@@ -9,7 +9,11 @@ export function getSocket(): Socket {
     socket = io(API_ORIGIN || undefined, {
       // Function form: a refreshed token is picked up on every reconnect.
       auth: (cb) => cb({ token: localStorage.getItem(PLAYER_TOKEN_KEY) }),
-      transports: ['websocket', 'polling'],
+      // Start on HTTP long-polling, which every reverse proxy passes, then upgrade to
+      // WebSocket when the proxy allows it. Starting on WebSocket would leave the app
+      // unable to connect at all behind a proxy without WebSocket support.
+      transports: ['polling', 'websocket'],
+      tryAllTransports: true,
       reconnectionDelay: 500,
       reconnectionDelayMax: 4000,
     });

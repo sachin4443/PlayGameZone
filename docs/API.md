@@ -83,7 +83,7 @@ audit log.
 
 `welcomeBonusPoints`, `platformCommissionPct`, `entryPointsMin`, `entryPointsMax`,
 `referrerRewardPoints`, `refereeRewardPoints`, `turnTimeSec`, `maxMissedTurns`,
-`disconnectTimeoutSec`, `matchmakingTimeoutSec`, `roomIdleTimeoutMin`, `captchaEnabled`,
+`disconnectTimeoutSec`, `matchmakingTimeoutSec`, `roomIdleTimeoutSec`, `captchaEnabled`,
 `captchaLength`, `tournamentPrizeSplit`.
 
 ### Rate limits

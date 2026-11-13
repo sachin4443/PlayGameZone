@@ -104,7 +104,7 @@ export default function RoomPage() {
         <div className="grid grid-cols-3 divide-x divide-line text-center text-xs">
           <div className="p-3"><span className="block text-muted">Entry</span><PointsPill value={room.entryPoints} className="text-sm" /></div>
           <div className="p-3"><span className="block text-muted">Prize pool</span><PointsPill value={room.entryPoints * Math.max(room.players.length, 2)} className="text-sm" /></div>
-          <div className="p-3"><span className="block text-muted">{room.isMatchmaking ? 'Time left' : 'Players'}</span><b className="text-sm">{room.isMatchmaking && secondsLeft !== null ? clock(secondsLeft) : `${room.players.length}/${room.maxPlayers}`}</b></div>
+          <div className="p-3"><span className="block text-muted">{room.isMatchmaking ? 'Time left' : 'Closes in'}</span><b className={`text-sm ${secondsLeft !== null && secondsLeft < 30 ? 'text-red-500' : ''}`}>{secondsLeft !== null ? clock(secondsLeft) : '—'}</b></div>
         </div>
       </section>
 
@@ -154,7 +154,8 @@ export default function RoomPage() {
           )}
         </div>
       )}
-      <p className="mt-4 text-center text-[11px] text-muted">Each player's {room.entryPoints} points are locked when the game starts and paid to the winner when it ends.</p>
+      {!room.isMatchmaking && !closed && <p className="mt-4 text-center text-[11px] text-muted">An unused room closes automatically. The timer restarts whenever someone joins or readies up.</p>}
+      <p className="mt-2 text-center text-[11px] text-muted">Each player's {room.entryPoints} points are locked when the game starts and paid to the winner when it ends.</p>
     </div>
   );
 }

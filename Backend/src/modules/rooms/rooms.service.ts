@@ -89,6 +89,10 @@ async function validateSpec(spec: RoomSpec) {
   return { mode, settings };
 }
 
+async function idleDeadline(): Promise<Date> {
+  return new Date(Date.now() + (await getSettings()).roomIdleTimeoutSec * 1000);
+}
+
 async function allocateCode(tx: Tx): Promise<string> {
   for (let i = 0; i < 10; i++) {
     const code = randomCode(6);
@@ -111,7 +115,7 @@ export async function createRoom(userId: string, input: RoomSpec & { name: strin
         maxPlayers: input.maxPlayers,
         entryPoints: input.entryPoints,
         visibility: input.visibility,
-        expiresAt: new Date(Date.now() + settings.roomIdleTimeoutMin * 60_000),
+        expiresAt: new Date(Date.now() + settings.roomIdleTimeoutSec * 1000),
         players: { create: { userId, seat: 0, isReady: true } },
       },
       include: roomInclude,
@@ -134,6 +138,8 @@ async function seatPlayer(tx: Tx, roomId: string, userId: string): Promise<'join
   let seat = 0;
   while (taken.has(seat)) seat++;
   await tx.roomPlayer.create({ data: { roomId, userId, seat, isReady: room.isMatchmaking } });
+  // Activity keeps a lobby alive; a matchmaking queue keeps its fixed deadline.
+  if (!room.isMatchmaking) await tx.gameRoom.update({ where: { id: roomId }, data: { expiresAt: await idleDeadline() } });
   return 'joined';
 }
 
@@ -172,11 +178,12 @@ export async function leaveRoom(userId: string, code: string): Promise<void> {
 }
 
 export async function setReady(userId: string, code: string, ready: boolean): Promise<RoomView> {
-  const room = await prisma.gameRoom.findUnique({ where: { code: code.toUpperCase() }, select: { id: true, code: true, status: true, hostId: true } });
+  const room = await prisma.gameRoom.findUnique({ where: { code: code.toUpperCase() }, select: { id: true, code: true, status: true, hostId: true, isMatchmaking: true } });
   if (!room) throw notFound('Room');
   if (room.status !== 'WAITING') throw conflict('ROOM_STARTED', 'The game has already started');
   const res = await prisma.roomPlayer.updateMany({ where: { roomId: room.id, userId }, data: { isReady: room.hostId === userId ? true : ready } });
   if (res.count !== 1) throw forbidden('You are not in this room');
+  if (!room.isMatchmaking) await prisma.gameRoom.updateMany({ where: { id: room.id, status: 'WAITING' }, data: { expiresAt: await idleDeadline() } });
   return pushRoom(room.code);
 }
 
@@ -290,7 +297,7 @@ export async function sweepExpiredRooms(): Promise<number> {
     closed++;
     realtime.toRoom(room.code, 'room-closed', {
       code: room.code,
-      reason: room.isMatchmaking ? 'No opponent found. Please try again.' : 'The room expired',
+      reason: room.isMatchmaking ? 'No opponent found. Please try again.' : 'The room was closed because nobody used it in time.',
       matchmakingTimeout: room.isMatchmaking,
     });
   }

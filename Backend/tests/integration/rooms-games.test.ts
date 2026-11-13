@@ -358,3 +358,38 @@ describe('public matchmaking', () => {
     await leaveRoom(a.id, again.code);
   });
 });
+
+describe('idle rooms', () => {
+  it('closes an unused room after the idle timeout (default two minutes) and frees the host', async () => {
+    const room = await createRoom(a.id, spec());
+    const view = await getRoomView(room.code);
+    const ttl = new Date(view.expiresAt!).getTime() - Date.now();
+    expect(ttl).toBeGreaterThan(110_000);
+    expect(ttl).toBeLessThanOrEqual(120_000);
+    expect(await sweepExpiredRooms()).toBe(0); // not yet
+
+    await prisma.gameRoom.update({ where: { code: room.code }, data: { expiresAt: new Date(Date.now() - 1000) } });
+    expect(await sweepExpiredRooms()).toBe(1);
+    expect((await getRoomView(room.code)).status).toBe('CANCELLED');
+    await expect(joinRoom(b.id, room.code)).rejects.toMatchObject({ code: 'ROOM_CLOSED' });
+    expect(await balanceOf(a.id)).toBe(100);
+    await createRoom(a.id, spec()); // host is free to open a new room
+  });
+
+  it('restarts the timer when someone joins or readies up, and never closes a started game', async () => {
+    const room = await createRoom(a.id, spec());
+    await prisma.gameRoom.update({ where: { code: room.code }, data: { expiresAt: new Date(Date.now() + 5000) } });
+    await joinRoom(b.id, room.code);
+    const afterJoin = new Date((await getRoomView(room.code)).expiresAt!).getTime();
+    expect(afterJoin - Date.now()).toBeGreaterThan(110_000);
+    await prisma.gameRoom.update({ where: { code: room.code }, data: { expiresAt: new Date(Date.now() + 5000) } });
+    await setReady(b.id, room.code, true);
+    expect(new Date((await getRoomView(room.code)).expiresAt!).getTime() - Date.now()).toBeGreaterThan(110_000);
+
+    const gameId = await startRoom(a.id, room.code);
+    expect((await getRoomView(room.code)).expiresAt).toBeNull();
+    expect(await sweepExpiredRooms()).toBe(0);
+    expect((await getRoomView(room.code)).status).toBe('IN_GAME');
+    await gameManager.cancel(gameId, 'cleanup');
+  });
+});
