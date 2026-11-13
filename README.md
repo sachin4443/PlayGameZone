@@ -81,7 +81,8 @@ npm run db:migrate
 npm run db:seed
 ```
 
-`db:migrate` runs `prisma migrate deploy`: it only applies pending migrations and never resets or
+`db:migrate` runs `prisma migrate deploy` and regenerates the Prisma client (if you ever see
+"@prisma/client did not initialize yet", run `npm run db:generate`). The deploy step: it only applies pending migrations and never resets or
 drops anything. The seed is idempotent; it adds roles, the five game modes and the super admin
 (from `SEED_ADMIN_USERNAME` / `SEED_ADMIN_PASSWORD`) if they are missing.
 
