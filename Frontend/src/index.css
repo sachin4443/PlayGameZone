@@ -1,0 +1,134 @@
+@import 'tailwindcss';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: 'Outfit', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-brand: #7c5cff;
+  --color-brand-600: #6846f0;
+  --color-accent: #ffb020;
+  --color-pink: #ff4d8d;
+  --color-ludo-red: #ef4444;
+  --color-ludo-green: #22c55e;
+  --color-ludo-yellow: #f5b800;
+  --color-ludo-blue: #3b82f6;
+}
+
+:root {
+  --bg: #f4f3fb;
+  --surface: #ffffff;
+  --surface-2: #eeecf9;
+  --ink: #15142b;
+  --muted: #6b6a85;
+  --line: #e2e0f1;
+  --board-bg: #ffffff;
+  --board-line: #c9c6dd;
+  --board-cell: #ffffff;
+}
+
+.dark {
+  --bg: #0c0d1f;
+  --surface: #171833;
+  --surface-2: #20224a;
+  --ink: #f3f2ff;
+  --muted: #9b9bbd;
+  --line: #2a2c58;
+  --board-bg: #f6f5ff;
+  --board-line: #b9b6d3;
+  --board-cell: #ffffff;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+@utility card {
+  @apply rounded-2xl border border-line bg-surface;
+}
+@utility btn {
+  @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50;
+}
+@utility btn-primary {
+  @apply btn bg-brand text-white shadow-lg shadow-brand/30 hover:bg-brand-600;
+}
+@utility btn-accent {
+  @apply btn bg-accent text-[#2a1a00] shadow-lg shadow-accent/30;
+}
+@utility btn-ghost {
+  @apply btn border border-line bg-surface text-ink hover:bg-surface-2;
+}
+@utility btn-danger {
+  @apply btn bg-red-500 text-white hover:bg-red-600;
+}
+@utility input {
+  @apply w-full rounded-xl border border-line bg-surface px-4 py-3 text-sm text-ink outline-none placeholder:text-muted focus:border-brand focus:ring-2 focus:ring-brand/25;
+}
+@utility label {
+  @apply mb-1.5 block text-[11px] font-bold uppercase tracking-wider text-muted;
+}
+@utility chip {
+  @apply inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide;
+}
+
+/* ── Game animations ───────────────────────────────────────────── */
+@keyframes dice-shake {
+  0% { transform: rotate(0deg) scale(1); }
+  25% { transform: rotate(-22deg) scale(1.08); }
+  50% { transform: rotate(18deg) scale(0.94); }
+  75% { transform: rotate(-12deg) scale(1.06); }
+  100% { transform: rotate(0deg) scale(1); }
+}
+.dice-rolling { animation: dice-shake 0.28s linear infinite; }
+
+@keyframes token-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.9; }
+  50% { transform: scale(1.35); opacity: 0.25; }
+}
+.token-hint { animation: token-pulse 0.9s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+
+@keyframes pop-in {
+  0% { transform: scale(0.85) translateY(12px); opacity: 0; }
+  100% { transform: scale(1) translateY(0); opacity: 1; }
+}
+.pop-in { animation: pop-in 0.22s ease-out both; }
+
+@keyframes slide-up {
+  0% { transform: translateY(100%); }
+  100% { transform: translateY(0); }
+}
+.slide-up { animation: slide-up 0.22s ease-out both; }
+
+@keyframes float-y {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+.float-y { animation: float-y 3s ease-in-out infinite; }
+
+@keyframes glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgb(255 176 32 / 0.55); }
+  50% { box-shadow: 0 0 0 10px rgb(255 176 32 / 0); }
+}
+.glow { animation: glow 1.2s ease-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .dice-rolling, .token-hint, .pop-in, .slide-up, .float-y, .glow { animation: none; }
+}
+
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { scrollbar-width: none; }
