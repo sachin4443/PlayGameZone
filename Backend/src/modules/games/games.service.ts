@@ -126,6 +126,7 @@ export async function settleGame(gameId: string, state: GameState): Promise<Sett
   const result = state.result;
   if (!result) throw new Error('Cannot settle a game that has not finished');
   const settings = await getSettings();
+  const referrers: string[] = [];
 
   const outcome = await prisma.$transaction(async (tx) => {
     const now = new Date();
@@ -172,7 +173,7 @@ export async function settleGame(gameId: string, state: GameState): Promise<Sett
         await credit(tx, ref.referrerId, settings.referrerRewardPoints, 'REFERRAL_BONUS', `referral:${ref.id}:referrer`, { refType: 'referral', refId: ref.id, note: 'Referral reward' });
       if (settings.refereeRewardPoints > 0)
         await credit(tx, ref.refereeId, settings.refereeRewardPoints, 'REFERRAL_BONUS', `referral:${ref.id}:referee`, { refType: 'referral', refId: ref.id, note: 'Referral joining reward' });
-      payoutsExtra.push(ref.referrerId);
+      referrers.push(ref.referrerId);
     }
 
     return { gameId, pool, commission, payouts, tournamentMatchId: game.tournamentMatchId };
@@ -180,11 +181,10 @@ export async function settleGame(gameId: string, state: GameState): Promise<Sett
 
   if (outcome) {
     for (const p of outcome.payouts) realtime.toUser(p.userId, 'wallet-update', {});
-    for (const id of payoutsExtra.splice(0)) realtime.toUser(id, 'wallet-update', {});
+    for (const id of referrers) realtime.toUser(id, 'wallet-update', {});
   }
   return outcome;
 }
-const payoutsExtra: string[] = [];
 
 /**
  * Cancels a running game and refunds every escrowed entry. Idempotent, and

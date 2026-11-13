@@ -26,6 +26,10 @@ export const realtime = {
   leaveAll(channel: string) {
     io?.in(channel).socketsLeave(channel);
   },
+  /** Drops every live connection of a user (used when an account is blocked). */
+  kick(userId: string) {
+    io?.in(`user:${userId}`).disconnectSockets(true);
+  },
   isOnline(userId: string): boolean {
     return (io?.sockets.adapter.rooms.get(`user:${userId}`)?.size ?? 0) > 0;
   },
