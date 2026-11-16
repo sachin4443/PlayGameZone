@@ -136,6 +136,36 @@ export function refundEntry(tx: Tx, userId: string, entry: number, gameId: strin
   });
 }
 
+/** Withdraw request submitted: the points are reserved so they cannot be spent or requested twice. */
+export function holdForWithdraw(tx: Tx, userId: string, amount: number, requestId: string) {
+  return apply(tx, {
+    userId, type: 'WITHDRAW_HOLD', direction: 'DEBIT', amount, key: `pointreq:${requestId}:hold`,
+    refType: 'pointRequest', refId: requestId,
+    delta: { balance: -amount, locked: amount },
+    requireBalance: amount,
+  });
+}
+
+/** Withdraw request approved: the reserved points leave the wallet. */
+export function completeWithdraw(tx: Tx, userId: string, amount: number, requestId: string, createdById: string) {
+  return apply(tx, {
+    userId, type: 'WITHDRAW', direction: 'DEBIT', amount, key: `pointreq:${requestId}:done`,
+    refType: 'pointRequest', refId: requestId, createdById,
+    delta: { locked: -amount, totalSpent: amount },
+    requireLocked: amount,
+  });
+}
+
+/** Withdraw request rejected: the reserved points return to the spendable balance. */
+export function releaseWithdraw(tx: Tx, userId: string, amount: number, requestId: string, createdById: string, note?: string) {
+  return apply(tx, {
+    userId, type: 'WITHDRAW_RELEASE', direction: 'CREDIT', amount, key: `pointreq:${requestId}:release`,
+    refType: 'pointRequest', refId: requestId, createdById, note,
+    delta: { locked: -amount, balance: amount },
+    requireLocked: amount,
+  });
+}
+
 /** Creates the wallet if missing and credits the welcome bonus exactly once per user. */
 export async function grantWelcomeBonus(tx: Tx, userId: string, amount: number): Promise<boolean> {
   await tx.wallet.upsert({ where: { userId }, create: { userId }, update: {} });

@@ -16,6 +16,7 @@ export const MODULES = {
   dashboard: 'Dashboard',
   users: 'Users',
   wallet: 'Wallet adjustments',
+  pointRequests: 'Point requests',
   accountRequests: 'Account requests',
   games: 'Games',
   rooms: 'Rooms',
@@ -40,7 +41,7 @@ export function roleDefaults(role: RoleName): PermissionMap {
   const map = all(['view', 'read']);
   map.staff = [];
   if (role === 'ADMIN') {
-    for (const m of ['users', 'wallet', 'accountRequests', 'games', 'rooms', 'prizePools', 'tournaments'] as ModuleKey[]) {
+    for (const m of ['users', 'wallet', 'pointRequests', 'accountRequests', 'games', 'rooms', 'prizePools', 'tournaments'] as ModuleKey[]) {
       map[m] = ['view', 'read', 'create', 'update', 'download', 'approve', 'reject', 'manage'];
     }
     map.audit = ['view', 'read', 'download'];

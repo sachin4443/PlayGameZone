@@ -33,6 +33,9 @@ export function toRoomView(r: RoomRow) {
     status: r.status,
     expiresAt: r.expiresAt,
     gameId: r.game?.id ?? null,
+    /** null = drawn at random at the start. Visible to everyone in the lobby. */
+    firstTurnUserId: r.firstTurnUserId,
+    firstTurnSetBy: r.firstTurnSetBy,
     players: r.players.map((p) => ({
       userId: p.userId,
       seat: p.seat,
@@ -163,6 +166,7 @@ export async function leaveRoom(userId: string, code: string): Promise<void> {
     if (fresh.status !== 'WAITING') throw conflict('ROOM_STARTED', 'The game has already started');
     if (!fresh.players.some((p) => p.userId === userId)) return false;
     await tx.roomPlayer.delete({ where: { roomId_userId: { roomId: room.id, userId } } });
+    if (fresh.firstTurnUserId === userId) await tx.gameRoom.update({ where: { id: room.id }, data: { firstTurnUserId: null, firstTurnSetBy: null } });
     const rest = fresh.players.filter((p) => p.userId !== userId);
     if (rest.length === 0) {
       await tx.gameRoom.update({ where: { id: room.id }, data: { status: 'CANCELLED' } });
@@ -186,6 +190,24 @@ export async function setReady(userId: string, code: string, ready: boolean): Pr
   const res = await prisma.roomPlayer.updateMany({ where: { roomId: room.id, userId }, data: { isReady: room.hostId === userId ? true : ready } });
   if (res.count !== 1) throw forbidden('You are not in this room');
   if (!room.isMatchmaking) await prisma.gameRoom.updateMany({ where: { id: room.id, status: 'WAITING' }, data: { expiresAt: await idleDeadline() } });
+  return pushRoom(room.code);
+}
+
+/**
+ * Sets who takes the first turn (null = random). Allowed only in a waiting room
+ * that is not a matchmaking / prize-pool table, and only for a seated player.
+ * `by` is recorded and shown to every player in the lobby.
+ */
+export async function setFirstTurn(code: string, userId: string | null, by: 'HOST' | 'ADMIN', actingHostId?: string): Promise<RoomView> {
+  const room = await prisma.gameRoom.findUnique({ where: { code: code.toUpperCase() }, include: { players: true } });
+  if (!room) throw notFound('Room');
+  if (by === 'HOST' && room.hostId !== actingHostId) throw forbidden('Only the host can change room settings');
+  if (room.status !== 'WAITING') throw conflict('ROOM_STARTED', 'The game has already started');
+  if (room.isMatchmaking) throw badRequest('RANDOM_ONLY', 'Matchmaking and prize-pool tables always draw the first turn at random');
+  if (userId && !room.players.some((p) => p.userId === userId)) throw badRequest('NOT_IN_ROOM', 'That player is not in this room');
+  // A host cannot undo a choice made by staff.
+  if (by === 'HOST' && room.firstTurnSetBy === 'ADMIN') throw forbidden('The first turn for this room was set by staff');
+  await prisma.gameRoom.update({ where: { id: room.id }, data: { firstTurnUserId: userId, firstTurnSetBy: userId ? by : null } });
   return pushRoom(room.code);
 }
 

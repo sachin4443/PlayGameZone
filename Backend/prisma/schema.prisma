@@ -33,6 +33,10 @@ enum TxType {
   TOURNAMENT_ENTRY
   TOURNAMENT_REWARD
   REFERRAL_BONUS
+  POINTS_REQUEST
+  WITHDRAW_HOLD
+  WITHDRAW
+  WITHDRAW_RELEASE
 }
 
 enum TxDirection {
@@ -97,6 +101,11 @@ enum RequestStatus {
   REJECTED
 }
 
+enum PointRequestType {
+  ADD
+  WITHDRAW
+}
+
 enum ReferralStatus {
   PENDING
   REWARDED
@@ -146,6 +155,7 @@ model User {
   auditLogs         AdminAuditLog[]
   permissions       StaffPermission[]
   accountRequests   AccountRequest[]
+  pointRequests     PointRequest[]
 
   @@index([status])
   @@index([createdAt])
@@ -173,6 +183,26 @@ model StaffPermission {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, module])
+}
+
+/// A player's request to add or withdraw VIRTUAL points, decided by staff.
+/// Deliberately has no payment fields: points have no cash value.
+model PointRequest {
+  id          String           @id @default(cuid())
+  userId      String
+  type        PointRequestType
+  amount      Int
+  note        String           @default("")
+  status      RequestStatus    @default(PENDING)
+  adminRemark String?
+  decidedById String?
+  decidedAt   DateTime?
+  createdAt   DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@index([userId, createdAt])
 }
 
 /// Requests that only staff may carry out: changing a mobile number or deleting an account.
@@ -313,6 +343,10 @@ model GameRoom {
   status        RoomStatus     @default(WAITING)
   expiresAt     DateTime?
   prizePoolId   String?
+  /// Who takes the first turn. Null = chosen at random when the game starts.
+  firstTurnUserId String?
+  /// "HOST" or "ADMIN": shown to every player in the lobby.
+  firstTurnSetBy  String?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 

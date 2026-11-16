@@ -56,7 +56,7 @@ export type SnakesEvent =
   | { type: 'forfeit'; seat: number }
   | { type: 'finish'; result: GameResultState };
 
-export function createSnakesGame(rules: SnakesRules, players: NewPlayer[], now: number): SnakesState {
+export function createSnakesGame(rules: SnakesRules, players: NewPlayer[], now: number, firstSeat = 0): SnakesState {
   if (players.length < 2 || players.length > 4) throw new EngineError('BAD_PLAYERS', 'A game needs 2 to 4 players');
   return {
     kind: 'SNAKES',
@@ -66,7 +66,7 @@ export function createSnakesGame(rules: SnakesRules, players: NewPlayer[], now: 
       seat, userId: p.userId, name: p.name, avatar: p.avatar, color: PIECE_COLORS[seat],
       pos: 0, score: 0, turnsTaken: 0, active: true, missed: 0, connected: true, ...(p.bot ? { bot: true } : {}),
     })),
-    turn: 0,
+    turn: firstSeat >= 0 && firstSeat < players.length ? firstSeat : 0,
     phase: 'ROLL',
     dice: null,
     sixStreak: 0,

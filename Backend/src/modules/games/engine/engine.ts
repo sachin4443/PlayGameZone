@@ -95,7 +95,7 @@ export interface NewPlayer {
   bot?: boolean;
 }
 
-export function createGame(rules: Rules, players: NewPlayer[], rng: Rng, now: number): GameState {
+export function createGame(rules: Rules, players: NewPlayer[], rng: Rng, now: number, firstSeat = 0): GameState {
   if (players.length < 2 || players.length > 4) throw new EngineError('BAD_PLAYERS', 'A game needs 2 to 4 players');
   const colors = colorsFor(players.length);
   const state: GameState = {
@@ -116,7 +116,7 @@ export function createGame(rules: Rules, players: NewPlayer[], rng: Rng, now: nu
       connected: true,
       ...(p.bot ? { bot: true } : {}),
     })),
-    turn: 0,
+    turn: firstSeat >= 0 && firstSeat < players.length ? firstSeat : 0,
     phase: 'ROLL',
     dice: null,
     steps: null,

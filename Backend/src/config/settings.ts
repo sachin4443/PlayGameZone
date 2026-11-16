@@ -17,6 +17,8 @@ export const SETTING_DEFS = {
   disconnectTimeoutSec: { schema: z.number().int().min(5).max(600), default: 60, description: 'Seconds a disconnected player may take to reconnect before forfeiting' },
   matchmakingTimeoutSec: { schema: z.number().int().min(10).max(600), default: 60, description: 'Seconds to wait for opponents in public matchmaking' },
   roomIdleTimeoutSec: { schema: z.number().int().min(30).max(86400), default: 120, description: 'Seconds a room may sit without activity (nobody joining or readying up) before it is closed' },
+  pointRequestsEnabled: { schema: z.boolean(), default: true, description: 'Let players send requests to add or withdraw virtual points' },
+  pointRequestMax: { schema: z.number().int().min(1).max(10_000_000), default: 10000, description: 'Largest number of points a single request may ask for' },
   captchaEnabled: { schema: z.boolean(), default: true, description: 'Require a CAPTCHA on player sign-in' },
   captchaLength: { schema: z.number().int().min(4).max(8), default: 5, description: 'Number of characters in the CAPTCHA' },
   tournamentPrizeSplit: { schema: z.array(z.number().int().min(0).max(100)).min(1).max(4), default: [70, 30], description: 'Default prize percentages by final rank for new tournaments' },

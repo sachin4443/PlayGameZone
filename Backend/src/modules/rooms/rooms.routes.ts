@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { h, parse } from '../../utils/http';
-import { joinPrizePool, listPrizePools, createRoom, getActiveContext, getRoomView, joinRoom, leaveRoom, listPublicRooms, quickMatch, setReady, startRoom } from './rooms.service';
+import { setFirstTurn, joinPrizePool, listPrizePools, createRoom, getActiveContext, getRoomView, joinRoom, leaveRoom, listPublicRooms, quickMatch, setReady, startRoom } from './rooms.service';
 
 export const roomsRouter = Router();
 
@@ -28,6 +28,10 @@ roomsRouter.get('/:code', h(async (req, res) => res.json(await getRoomView(parse
 roomsRouter.post('/:code/ready', h(async (req, res) => {
   const { ready } = parse(z.object({ ready: z.boolean() }), req.body);
   res.json(await setReady(req.user!.id, req.params.code, ready));
+}));
+roomsRouter.post('/:code/first-turn', h(async (req, res) => {
+  const { userId } = parse(z.object({ userId: z.string().max(40).nullable() }), req.body);
+  res.json(await setFirstTurn(req.params.code, userId, 'HOST', req.user!.id));
 }));
 roomsRouter.post('/:code/start', h(async (req, res) => res.json({ gameId: await startRoom(req.user!.id, req.params.code) })));
 roomsRouter.post('/:code/leave', h(async (req, res) => {

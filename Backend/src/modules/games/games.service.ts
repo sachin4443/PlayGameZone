@@ -1,3 +1,4 @@
+import { randomInt } from 'crypto';
 import type { Prisma } from '@prisma/client';
 import { getSettings } from '../../config/settings';
 import { prisma, type Tx } from '../../lib/prisma';
@@ -16,6 +17,12 @@ import { createSnakesGame } from './engine/snakes';
  * terminal operations are guarded so that exactly one of them can ever apply.
  */
 
+/**
+ * Chooses who takes the first turn when a room has no explicit setting.
+ * Uniformly random by default; replaceable so tests are deterministic.
+ */
+export const firstTurn = { pick: (playerCount: number): number => randomInt(playerCount) };
+
 export interface StartedGame {
   gameId: string;
   state: AnyState;
@@ -33,7 +40,7 @@ interface Seat { userId: string; name: string; avatar: string; bot?: boolean }
 
 async function createGameTx(
   tx: Tx,
-  args: { modeId: number; modeKey: string; modeRules: unknown; entryPoints: number; seats: Seat[]; roomId?: string; tournamentMatchId?: string; commissionPct: number; isPractice?: boolean; fixedPrize?: number | null; prizePoolId?: string | null },
+  args: { modeId: number; modeKey: string; modeRules: unknown; entryPoints: number; seats: Seat[]; roomId?: string; tournamentMatchId?: string; commissionPct: number; isPractice?: boolean; fixedPrize?: number | null; prizePoolId?: string | null; firstSeat?: number },
   rng: Rng,
 ) {
   const { seats, entryPoints } = args;
@@ -65,7 +72,7 @@ async function createGameTx(
   }
 
   const resolved = resolveModeRules(args.modeKey, args.modeRules);
-  const state: AnyState = resolved.game === 'SNAKES' ? createSnakesGame(resolved.rules, seats, Date.now()) : createGame(resolved.rules, seats, rng, Date.now());
+  const state: AnyState = resolved.game === 'SNAKES' ? createSnakesGame(resolved.rules, seats, Date.now(), args.firstSeat ?? 0) : createGame(resolved.rules, seats, rng, Date.now(), args.firstSeat ?? 0);
   await tx.gamePlayer.createMany({
     data: state.players.map((p) => ({ gameId: game.id, userId: p.userId, seat: p.seat, color: p.color, entryPaid: entryPoints })),
   });
@@ -92,9 +99,12 @@ export async function startRoomGame(roomId: string, rng: Rng): Promise<StartedGa
       name: p.user.profile?.displayName ?? 'Player',
       avatar: p.user.profile?.avatar ?? 'a1',
     }));
+    // First turn: the player named in the lobby (if still seated), otherwise drawn at random.
+    const named = room.firstTurnUserId ? seats.findIndex((s) => s.userId === room.firstTurnUserId) : -1;
+    const firstSeat = named >= 0 ? named : firstTurn.pick(seats.length);
     const { game, state } = await createGameTx(
       tx,
-      { modeId: room.modeId, modeKey: room.mode.key, modeRules: room.mode.rules, entryPoints: room.entryPoints, seats, roomId, commissionPct: settings.platformCommissionPct, fixedPrize: room.prizePool?.prizePoints ?? null, prizePoolId: room.prizePoolId },
+      { firstSeat, modeId: room.modeId, modeKey: room.mode.key, modeRules: room.mode.rules, entryPoints: room.entryPoints, seats, roomId, commissionPct: settings.platformCommissionPct, fixedPrize: room.prizePool?.prizePoints ?? null, prizePoolId: room.prizePoolId },
       rng,
     );
     return { gameId: game.id, state, userIds: seats.map((s) => s.userId), roomCode: room.code };
@@ -113,7 +123,7 @@ export async function startDirectGame(args: { modeId: number; userIds: string[];
     });
     const { game, state } = await createGameTx(
       tx,
-      { modeId: mode.id, modeKey: mode.key, modeRules: mode.rules, entryPoints: 0, seats, tournamentMatchId: args.tournamentMatchId, commissionPct: 0, isPractice: args.isPractice },
+      { modeId: mode.id, modeKey: mode.key, modeRules: mode.rules, entryPoints: 0, seats, tournamentMatchId: args.tournamentMatchId, commissionPct: 0, isPractice: args.isPractice, firstSeat: args.isPractice ? 0 : firstTurn.pick(seats.length) },
       rng,
     );
     return { gameId: game.id, state, userIds: args.userIds };

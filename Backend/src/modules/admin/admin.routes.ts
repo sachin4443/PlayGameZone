@@ -16,6 +16,8 @@ import { ACTIONS, MODULES, MODULE_KEYS, can, effectivePermissions, isRoot, loadS
 import { gameManager } from '../games/game.manager';
 import { notify } from '../notifications/notifications.service';
 import { cancelTournament, getTournament, listTournaments, startTournament } from '../tournaments/tournaments.service';
+import { setFirstTurn } from '../rooms/rooms.service';
+import { decidePointRequest, listPointRequests } from '../wallet/pointRequests.service';
 import { credit, debit, listTransactions } from '../wallet/wallet.service';
 
 export const adminRouter = Router();
@@ -66,7 +68,7 @@ adminRouter.get('/dashboard', can('dashboard', 'read'), h(async (_req, res) => {
     prisma.user.count({ where: { ...players, status: 'BLOCKED' } }),
     prisma.game.groupBy({ by: ['status'], _count: true, _sum: { commissionAmount: true } }),
     prisma.wallet.aggregate({ _sum: { balance: true, locked: true } }),
-    prisma.walletTransaction.aggregate({ where: { type: { in: ['WELCOME_BONUS', 'ADMIN_CREDIT', 'REFERRAL_BONUS'] } }, _sum: { amount: true } }),
+    prisma.walletTransaction.aggregate({ where: { type: { in: ['WELCOME_BONUS', 'ADMIN_CREDIT', 'REFERRAL_BONUS', 'POINTS_REQUEST'] } }, _sum: { amount: true } }),
     prisma.gameRoom.count({ where: { status: 'WAITING' } }),
     prisma.tournament.count({ where: { status: { in: ['UPCOMING', 'RUNNING'] } } }),
   ]);
@@ -216,7 +218,7 @@ adminRouter.get('/rooms', can('rooms', 'read'), h(async (req, res) => {
   const [rows, total] = await Promise.all([
     prisma.gameRoom.findMany({
       where, orderBy: { createdAt: 'desc' }, skip: p.skip, take: p.take,
-      include: { mode: { select: { name: true } }, host: { select: { mobile: true, profile: { select: { displayName: true } } } }, game: { select: { id: true } }, _count: { select: { players: true } } },
+      include: { mode: { select: { name: true } }, host: { select: { mobile: true, profile: { select: { displayName: true } } } }, game: { select: { id: true } }, _count: { select: { players: true } }, players: { orderBy: { seat: 'asc' }, select: { userId: true, user: { select: { profile: { select: { displayName: true } } } } } } },
     }),
     prisma.gameRoom.count({ where }),
   ]);
@@ -225,6 +227,7 @@ adminRouter.get('/rooms', can('rooms', 'read'), h(async (req, res) => {
     items: rows.map((r) => ({
       id: r.id, code: r.code, name: r.name, mode: r.mode.name, host: r.host.profile?.displayName ?? r.host.mobile, visibility: r.visibility, isMatchmaking: r.isMatchmaking,
       status: r.status, entryPoints: r.entryPoints, maxPlayers: r.maxPlayers, players: r._count.players, gameId: r.game?.id ?? null, createdAt: r.createdAt,
+      firstTurnUserId: r.firstTurnUserId, firstTurnSetBy: r.firstTurnSetBy, seats: r.players.map((pl) => ({ userId: pl.userId, name: pl.user.profile?.displayName ?? 'Player' })),
     })),
   });
 }));
@@ -459,8 +462,12 @@ adminRouter.delete('/prize-pools/:id', can('prizePools', 'delete'), h(async (req
 // ── Account requests (mobile change / account deletion) ───────────
 
 adminRouter.get('/notifications/summary', h(async (req, res) => {
-  const seeRequests = req.staff!.permissions.accountRequests.includes('view');
-  res.json({ accountRequests: seeRequests ? await prisma.accountRequest.count({ where: { status: 'PENDING' } }) : 0 });
+  const perms = req.staff!.permissions;
+  const [accountRequests, pointRequests] = await Promise.all([
+    perms.accountRequests.includes('view') ? prisma.accountRequest.count({ where: { status: 'PENDING' } }) : 0,
+    perms.pointRequests.includes('view') ? prisma.pointRequest.count({ where: { status: 'PENDING' } }) : 0,
+  ]);
+  res.json({ accountRequests, pointRequests });
 }));
 
 adminRouter.get('/account-requests', can('accountRequests', 'read'), h(async (req, res) => {
@@ -524,6 +531,59 @@ adminRouter.post('/users/:id/set-pin', can('users', 'manage'), h(async (req, res
   await prisma.user.update({ where: { id: user.id }, data: { pinHash: await bcrypt.hash(pin, 10), failedPinAttempts: 0, pinLockedUntil: null } });
   realtime.kick(user.id);
   await audit(req, 'USER_PIN_RESET', { type: 'user', id: user.id });
+  res.json({ ok: true });
+}));
+
+// ── Point requests (virtual points only) ──────────────────────────
+
+adminRouter.get('/point-requests', can('pointRequests', 'read'), h(async (req, res) => {
+  const q = parse(z.object({ status: z.enum(['PENDING', 'APPROVED', 'REJECTED']).optional(), type: z.enum(['ADD', 'WITHDRAW']).optional(), search: z.string().trim().max(20).optional() }), req.query);
+  const p = pageParams(req.query);
+  const where: Prisma.PointRequestWhereInput = {
+    ...(q.status ? { status: q.status } : {}), ...(q.type ? { type: q.type } : {}),
+    ...(q.search ? { user: { OR: [{ mobile: { contains: q.search } }, { profile: { displayName: { contains: q.search, mode: 'insensitive' } } }] } } : {}),
+  };
+  const { items, total } = await listPointRequests(where, p.skip, p.take);
+  res.json({ items, total, page: p.page, pageSize: p.pageSize });
+}));
+
+adminRouter.post('/point-requests/:id/approve', can('pointRequests', 'approve'), h(async (req, res) => {
+  const { remark } = parse(z.object({ remark: z.string().trim().max(200).default('') }), req.body);
+  await decidePointRequest(req.params.id, 'APPROVED', req.user!.id, remark, req.ip);
+  res.json({ ok: true });
+}));
+
+adminRouter.post('/point-requests/:id/reject', can('pointRequests', 'reject'), h(async (req, res) => {
+  const { remark } = parse(z.object({ remark: z.string().trim().min(3, 'Give the player a reason').max(200) }), req.body);
+  await decidePointRequest(req.params.id, 'REJECTED', req.user!.id, remark, req.ip);
+  res.json({ ok: true });
+}));
+
+// ── Room management ───────────────────────────────────────────────
+
+/**
+ * Staff may set who takes the first turn in a waiting private/public room, or
+ * hand the choice back to chance. The setting is shown to every player in the
+ * lobby before the game starts. Matchmaking and prize-pool tables always draw
+ * the first turn at random and cannot be changed. Dice are never affected.
+ */
+adminRouter.patch('/rooms/:id', can('rooms', 'manage'), h(async (req, res) => {
+  const body = parse(z.object({ firstTurnUserId: z.string().max(40).nullable() }), req.body);
+  const room = await prisma.gameRoom.findUnique({ where: { id: req.params.id }, select: { code: true, firstTurnUserId: true } });
+  if (!room) throw notFound('Room');
+  await setFirstTurn(room.code, body.firstTurnUserId, 'ADMIN');
+  await audit(req, 'ROOM_FIRST_TURN', { type: 'room', id: req.params.id }, { code: room.code, before: room.firstTurnUserId, after: body.firstTurnUserId });
+  res.json({ ok: true });
+}));
+
+adminRouter.post('/rooms/:id/close', can('rooms', 'manage'), h(async (req, res) => {
+  const { reason } = parse(z.object({ reason: z.string().trim().min(3, 'A reason is required').max(200) }), req.body);
+  const room = await prisma.gameRoom.findUnique({ where: { id: req.params.id }, select: { id: true, code: true } });
+  if (!room) throw notFound('Room');
+  const closed = await prisma.gameRoom.updateMany({ where: { id: room.id, status: 'WAITING' }, data: { status: 'CANCELLED' } });
+  if (closed.count !== 1) throw conflict('ROOM_NOT_WAITING', 'Only rooms that have not started can be closed. Cancel the game instead.');
+  realtime.toRoom(room.code, 'room-closed', { code: room.code, reason: `Closed by staff: ${reason}` });
+  await audit(req, 'ROOM_CLOSE', { type: 'room', id: room.id }, { code: room.code, reason });
   res.json({ ok: true });
 }));
 

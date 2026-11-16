@@ -10,6 +10,9 @@ export const ludo = (gameId: string) => gameManager.getState(gameId) as GameStat
 /** Empties the TEST database (guarded in setup.ts) and restores reference data. */
 export async function resetDb() {
   if (!/_test(\?|$)/.test(process.env.DATABASE_URL ?? '')) throw new Error('Refusing to truncate a non-test database');
+  // Ask the server which database this connection really is: the URL check alone is not enough.
+  const [{ name }] = await prisma.$queryRaw<{ name: string }[]>`SELECT current_database() AS name`;
+  if (!name.endsWith('_test')) throw new Error(`Refusing to truncate database "${name}": tests may only run against a database whose name ends with _test`);
   const tables = await prisma.$queryRaw<{ tablename: string }[]>`SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> '_prisma_migrations'`;
   await prisma.$executeRawUnsafe(`TRUNCATE ${tables.map((t) => `"${t.tablename}"`).join(', ')} RESTART IDENTITY CASCADE`);
   invalidateSettings();
