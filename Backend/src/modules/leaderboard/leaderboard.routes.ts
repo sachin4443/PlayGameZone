@@ -27,6 +27,7 @@ export async function getLeaderboard(period: Period, limit = 50) {
            COALESCE(SUM(CASE WHEN r."isWinner" THEN 1 ELSE 0 END), 0)::int AS wins,
            COALESCE(SUM(r."pointsWon"), 0)::int AS points
     FROM "GameResult" r
+    JOIN "Game" g ON g.id = r."gameId" AND g."isPractice" = false
     WHERE r."createdAt" >= ${periodStart(period)}
     GROUP BY r."userId"
     ORDER BY wins DESC, points DESC, matches ASC, r."userId" ASC

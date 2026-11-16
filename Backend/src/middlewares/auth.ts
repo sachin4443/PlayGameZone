@@ -8,6 +8,7 @@ export interface AuthUser {
   id: string;
   kind: 'player' | 'staff';
   roles: RoleName[];
+  mustChangePassword: boolean;
 }
 
 declare module 'express-serve-static-core' {
@@ -27,11 +28,11 @@ export async function authenticateToken(token: string | undefined): Promise<Auth
   }
   const user = await prisma.user.findUnique({
     where: { id: payload.sub },
-    select: { id: true, status: true, roles: { select: { role: { select: { name: true } } } } },
+    select: { id: true, status: true, mustChangePassword: true, isBot: true, roles: { select: { role: { select: { name: true } } } } },
   });
-  if (!user) throw unauthorized();
+  if (!user || user.isBot) throw unauthorized();
   if (user.status === 'BLOCKED') throw forbidden('This account has been blocked');
-  return { id: user.id, kind: payload.kind, roles: user.roles.map((r) => r.role.name) };
+  return { id: user.id, kind: payload.kind, roles: user.roles.map((r) => r.role.name), mustChangePassword: user.mustChangePassword };
 }
 
 export const requireAuth: RequestHandler = (req, _res, next) => {

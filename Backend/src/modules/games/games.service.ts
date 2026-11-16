@@ -5,8 +5,10 @@ import { realtime } from '../../services/realtime';
 import { AppError, badRequest, conflict, notFound } from '../../utils/errors';
 import { notify } from '../notifications/notifications.service';
 import { credit, lockEntry, refundEntry, settleLoss, settleWin } from '../wallet/wallet.service';
-import { createGame, type GameState, type Rng } from './engine/engine';
-import { resolveRules } from './engine/rules';
+import { createGame, type Rng } from './engine/engine';
+import type { AnyState } from './engine';
+import { resolveModeRules } from './engine/rules';
+import { createSnakesGame } from './engine/snakes';
 
 /**
  * Database side of a game's life-cycle: creation with entry escrow, settlement
@@ -16,7 +18,7 @@ import { resolveRules } from './engine/rules';
 
 export interface StartedGame {
   gameId: string;
-  state: GameState;
+  state: AnyState;
   userIds: string[];
   roomCode?: string;
 }
@@ -27,11 +29,11 @@ export class InsufficientPlayerPoints extends AppError {
   }
 }
 
-interface Seat { userId: string; name: string; avatar: string }
+interface Seat { userId: string; name: string; avatar: string; bot?: boolean }
 
 async function createGameTx(
   tx: Tx,
-  args: { modeId: number; modeKey: string; modeRules: unknown; entryPoints: number; seats: Seat[]; roomId?: string; tournamentMatchId?: string; commissionPct: number },
+  args: { modeId: number; modeKey: string; modeRules: unknown; entryPoints: number; seats: Seat[]; roomId?: string; tournamentMatchId?: string; commissionPct: number; isPractice?: boolean; fixedPrize?: number | null; prizePoolId?: string | null },
   rng: Rng,
 ) {
   const { seats, entryPoints } = args;
@@ -44,6 +46,9 @@ async function createGameTx(
       entryPoints,
       pool: entryPoints * seats.length,
       commissionPct: args.commissionPct,
+      isPractice: args.isPractice ?? false,
+      fixedPrize: args.fixedPrize ?? null,
+      prizePoolId: args.prizePoolId ?? null,
     },
   });
 
@@ -59,7 +64,8 @@ async function createGameTx(
     }
   }
 
-  const state = createGame(resolveRules(args.modeKey, args.modeRules), seats, rng, Date.now());
+  const resolved = resolveModeRules(args.modeKey, args.modeRules);
+  const state: AnyState = resolved.game === 'SNAKES' ? createSnakesGame(resolved.rules, seats, Date.now()) : createGame(resolved.rules, seats, rng, Date.now());
   await tx.gamePlayer.createMany({
     data: state.players.map((p) => ({ gameId: game.id, userId: p.userId, seat: p.seat, color: p.color, entryPaid: entryPoints })),
   });
@@ -77,7 +83,7 @@ export async function startRoomGame(roomId: string, rng: Rng): Promise<StartedGa
 
     const room = await tx.gameRoom.findUniqueOrThrow({
       where: { id: roomId },
-      include: { mode: true, players: { orderBy: { seat: 'asc' }, include: { user: { include: { profile: true } } } } },
+      include: { mode: true, prizePool: true, players: { orderBy: { seat: 'asc' }, include: { user: { include: { profile: true } } } } },
     });
     if (room.players.length < 2) throw badRequest('NOT_ENOUGH_PLAYERS', 'At least two players are needed');
 
@@ -88,7 +94,7 @@ export async function startRoomGame(roomId: string, rng: Rng): Promise<StartedGa
     }));
     const { game, state } = await createGameTx(
       tx,
-      { modeId: room.modeId, modeKey: room.mode.key, modeRules: room.mode.rules, entryPoints: room.entryPoints, seats, roomId, commissionPct: settings.platformCommissionPct },
+      { modeId: room.modeId, modeKey: room.mode.key, modeRules: room.mode.rules, entryPoints: room.entryPoints, seats, roomId, commissionPct: settings.platformCommissionPct, fixedPrize: room.prizePool?.prizePoints ?? null, prizePoolId: room.prizePoolId },
       rng,
     );
     return { gameId: game.id, state, userIds: seats.map((s) => s.userId), roomCode: room.code };
@@ -96,18 +102,18 @@ export async function startRoomGame(roomId: string, rng: Rng): Promise<StartedGa
 }
 
 /** Starts a game that is not attached to a room (tournament matches; no entry escrow). */
-export async function startDirectGame(args: { modeId: number; userIds: string[]; tournamentMatchId?: string }, rng: Rng): Promise<StartedGame> {
+export async function startDirectGame(args: { modeId: number; userIds: string[]; tournamentMatchId?: string; isPractice?: boolean }, rng: Rng): Promise<StartedGame> {
   return prisma.$transaction(async (tx) => {
     const mode = await tx.gameMode.findUniqueOrThrow({ where: { id: args.modeId } });
     const users = await tx.user.findMany({ where: { id: { in: args.userIds } }, include: { profile: true } });
     const seats = args.userIds.map((id) => {
       const u = users.find((x) => x.id === id);
       if (!u) throw notFound('Player');
-      return { userId: id, name: u.profile?.displayName ?? 'Player', avatar: u.profile?.avatar ?? 'a1' };
+      return { userId: id, name: u.profile?.displayName ?? 'Player', avatar: u.profile?.avatar ?? 'a1', bot: u.isBot };
     });
     const { game, state } = await createGameTx(
       tx,
-      { modeId: mode.id, modeKey: mode.key, modeRules: mode.rules, entryPoints: 0, seats, tournamentMatchId: args.tournamentMatchId, commissionPct: 0 },
+      { modeId: mode.id, modeKey: mode.key, modeRules: mode.rules, entryPoints: 0, seats, tournamentMatchId: args.tournamentMatchId, commissionPct: 0, isPractice: args.isPractice },
       rng,
     );
     return { gameId: game.id, state, userIds: args.userIds };
@@ -115,14 +121,14 @@ export async function startDirectGame(args: { modeId: number; userIds: string[];
 }
 
 export interface Payout { userId: string; seat: number; rank: number; isWinner: boolean; score: number; pointsWon: number; entryPaid: number }
-export interface SettleOutcome { gameId: string; pool: number; commission: number; payouts: Payout[]; tournamentMatchId: string | null }
+export interface SettleOutcome { gameId: string; pool: number; commission: number; payouts: Payout[]; tournamentMatchId: string | null; isPractice: boolean }
 
 /**
  * Pays out a finished game. Idempotent: the Game row can leave ACTIVE only once,
  * and each wallet movement carries its own idempotency key as a second guard.
  * Returns null when the game was already settled or cancelled.
  */
-export async function settleGame(gameId: string, state: GameState): Promise<SettleOutcome | null> {
+export async function settleGame(gameId: string, state: AnyState): Promise<SettleOutcome | null> {
   const result = state.result;
   if (!result) throw new Error('Cannot settle a game that has not finished');
   const settings = await getSettings();
@@ -137,7 +143,9 @@ export async function settleGame(gameId: string, state: GameState): Promise<Sett
     const pool = game.players.reduce((sum, p) => sum + p.entryPaid, 0);
     const baseCommission = Math.floor((pool * game.commissionPct) / 100);
     const winners = result.winners;
-    const share = Math.floor((pool - baseCommission) / winners.length);
+    // Prize-pool tables pay their advertised prize; other games pay the pool minus commission.
+    const prize = game.fixedPrize !== null ? Math.min(game.fixedPrize, pool) : pool - baseCommission;
+    const share = Math.floor(prize / winners.length);
     // Points that cannot be split evenly between tied winners stay with the platform.
     const commission = pool - share * winners.length;
 
@@ -161,7 +169,7 @@ export async function settleGame(gameId: string, state: GameState): Promise<Sett
     if (game.roomId) await tx.gameRoom.update({ where: { id: game.roomId }, data: { status: 'COMPLETED' } });
 
     // Referral rewards unlock when the invited player completes a first game.
-    const finishers = state.players.filter((p) => p.active).map((p) => p.userId);
+    const finishers = game.isPractice ? [] : state.players.filter((p) => p.active).map((p) => p.userId);
     const pending = await tx.referral.findMany({ where: { refereeId: { in: finishers }, status: 'PENDING' } });
     for (const ref of pending) {
       const flipped = await tx.referral.updateMany({
@@ -176,11 +184,11 @@ export async function settleGame(gameId: string, state: GameState): Promise<Sett
       referrers.push(ref.referrerId);
     }
 
-    return { gameId, pool, commission, payouts, tournamentMatchId: game.tournamentMatchId };
+    return { gameId, pool, commission, payouts, tournamentMatchId: game.tournamentMatchId, isPractice: game.isPractice };
   });
 
   if (outcome) {
-    for (const p of outcome.payouts) realtime.toUser(p.userId, 'wallet-update', {});
+    if (!outcome.isPractice) for (const p of outcome.payouts) realtime.toUser(p.userId, 'wallet-update', {});
     for (const id of referrers) realtime.toUser(id, 'wallet-update', {});
   }
   return outcome;
@@ -190,7 +198,7 @@ export async function settleGame(gameId: string, state: GameState): Promise<Sett
  * Cancels a running game and refunds every escrowed entry. Idempotent, and
  * mutually exclusive with settleGame through the same status guard.
  */
-export async function cancelGame(gameId: string, reason: string): Promise<{ userIds: string[]; tournamentMatchId: string | null } | null> {
+export async function cancelGame(gameId: string, reason: string): Promise<{ userIds: string[]; tournamentMatchId: string | null; isPractice: boolean } | null> {
   const out = await prisma.$transaction(async (tx) => {
     const now = new Date();
     const claimed = await tx.game.updateMany({
@@ -203,13 +211,41 @@ export async function cancelGame(gameId: string, reason: string): Promise<{ user
       if (gp.entryPaid > 0) await refundEntry(tx, gp.userId, gp.entryPaid, gameId, reason);
     }
     if (game.roomId) await tx.gameRoom.update({ where: { id: game.roomId }, data: { status: 'CANCELLED' } });
-    return { userIds: game.players.map((p) => p.userId), tournamentMatchId: game.tournamentMatchId };
+    return { userIds: game.players.map((p) => p.userId), tournamentMatchId: game.tournamentMatchId, isPractice: game.isPractice };
   });
-  if (out) {
+  if (out && !out.isPractice) {
     for (const userId of out.userIds) {
       realtime.toUser(userId, 'wallet-update', {});
       await notify(userId, { type: 'GAME_CANCELLED', title: 'Game cancelled', body: `Your game was cancelled and your entry was refunded. ${reason}`.trim(), data: { gameId } });
     }
   }
   return out;
+}
+
+const BOT_NAMES = ['Robo Raja', 'Chip Champ', 'Dice Devi'];
+
+/** Computer opponents are ordinary user rows flagged isBot, created on first use. */
+async function botUserIds(count: number): Promise<string[]> {
+  const ids: string[] = [];
+  for (let i = 0; i < count; i++) {
+    const referralCode = `BOT${i + 1}`;
+    const bot = await prisma.user.upsert({
+      where: { referralCode },
+      update: {},
+      create: { referralCode, isBot: true, welcomeBonusGranted: true, profile: { create: { displayName: BOT_NAMES[i], avatar: `a${i + 5}` } } },
+    });
+    ids.push(bot.id);
+  }
+  return ids;
+}
+
+/** Free practice game: the player against 1–3 computer players. No points move. */
+export async function startPracticeGame(userId: string, modeKey: string, players: number, rng: Rng): Promise<StartedGame> {
+  const mode = await prisma.gameMode.findUnique({ where: { key: modeKey } });
+  if (!mode || !mode.isActive) throw badRequest('MODE_UNAVAILABLE', 'This game mode is not available');
+  if (players < 2 || players > 4) throw badRequest('PLAYERS_NOT_ALLOWED', 'Choose 2 to 4 players');
+  const running = await prisma.gamePlayer.findFirst({ where: { userId, status: 'PLAYING', game: { status: 'ACTIVE', isPractice: true } }, select: { gameId: true } });
+  if (running) throw conflict('ALREADY_IN_GAME', 'Finish your current practice game first');
+  const bots = await botUserIds(players - 1);
+  return startDirectGame({ modeId: mode.id, userIds: [userId, ...bots], isPractice: true }, rng);
 }

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { h, parse } from '../../utils/http';
-import { createRoom, getActiveContext, getRoomView, joinRoom, leaveRoom, listPublicRooms, quickMatch, setReady, startRoom } from './rooms.service';
+import { joinPrizePool, listPrizePools, createRoom, getActiveContext, getRoomView, joinRoom, leaveRoom, listPublicRooms, quickMatch, setReady, startRoom } from './rooms.service';
 
 export const roomsRouter = Router();
 
@@ -18,6 +18,8 @@ const createSchema = z.object({
 const code = z.string().trim().min(4).max(10);
 
 roomsRouter.get('/public', h(async (_req, res) => res.json({ items: await listPublicRooms() })));
+roomsRouter.get('/pools', h(async (_req, res) => res.json({ items: await listPrizePools() })));
+roomsRouter.post('/pools/:id/join', h(async (req, res) => res.json(await joinPrizePool(req.user!.id, req.params.id))));
 roomsRouter.get('/active', h(async (req, res) => res.json(await getActiveContext(req.user!.id))));
 roomsRouter.post('/', h(async (req, res) => res.status(201).json(await createRoom(req.user!.id, parse(createSchema, req.body)))));
 roomsRouter.post('/quick-match', h(async (req, res) => res.json(await quickMatch(req.user!.id, parse(z.object(spec), req.body)))));

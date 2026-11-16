@@ -88,3 +88,27 @@ export function resolveRules(key: string, overrides: unknown = {}): Rules {
   const partial = rulesSchema.partial().strict().parse(overrides ?? {});
   return rulesSchema.parse({ ...preset, ...partial });
 }
+
+// ───────────────────────── Snake & Ladder ─────────────────────────
+
+export const snakesRulesSchema = z.object({
+  /** The last roll must land exactly on 100; a larger roll does not move. */
+  exactFinish: z.boolean(),
+  extraTurnOnSix: z.boolean(),
+  /** Rolling this many sixes in a row ends the turn (0 = no limit). */
+  maxConsecutiveSixes: z.number().int().min(0).max(10),
+});
+export type SnakesRules = z.infer<typeof snakesRulesSchema>;
+
+export const SNAKES_PRESET: SnakesRules = { exactFinish: true, extraTurnOnSix: true, maxConsecutiveSixes: 3 };
+export const SNAKES_KEY = 'SNAKES';
+
+export function resolveSnakesRules(overrides: unknown = {}): SnakesRules {
+  const partial = snakesRulesSchema.partial().strict().parse(overrides ?? {});
+  return snakesRulesSchema.parse({ ...SNAKES_PRESET, ...partial });
+}
+
+/** Rules for any game mode, whichever board game it belongs to. */
+export function resolveModeRules(key: string, overrides: unknown = {}): { game: 'LUDO'; rules: Rules } | { game: 'SNAKES'; rules: SnakesRules } {
+  return key === SNAKES_KEY ? { game: 'SNAKES', rules: resolveSnakesRules(overrides) } : { game: 'LUDO', rules: resolveRules(key, overrides) };
+}

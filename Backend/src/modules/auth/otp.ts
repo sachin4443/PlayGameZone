@@ -3,6 +3,10 @@ import { env } from '../../config/env';
 import { AppError, badRequest } from '../../utils/errors';
 
 /**
+ * NOT USED BY ANY ROUTE YET. Players sign in with mobile + PIN. This module is the
+ * integration point for SMS: once a gateway is available, call startChallenge /
+ * completeChallenge before registerWithPin (and for a self-service "forgot PIN").
+ *
  * One-time-code delivery is behind this interface so that swapping the temporary
  * development login for real SMS only means adding a provider – routes, challenge
  * handling, user creation and JWT issuing stay exactly the same.

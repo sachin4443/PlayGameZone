@@ -13,11 +13,12 @@ const MODES = [
   { key: 'SCORE', name: 'Timer 5 Min', tagline: 'Highest score in five minutes.', allowedPlayers: [2, 4], description: 'All tokens start on the board. Every step scores a point, captures and home runs score big. When the five-minute clock stops, the highest score wins.' },
   { key: 'MANIA', name: 'Mania', tagline: '25 rolls. No shelters. Power rolls.', allowedPlayers: [2, 4], description: '25 rolls each. Star cells do not protect, blocks do not protect, and every fifth roll moves double. Highest score wins.' },
   { key: 'PICK_DICE', name: 'Pick Your Dice', tagline: 'Three shared dice. 30 picks.', allowedPlayers: [2, 4], description: 'Three dice sit on the table for everyone. Pick one, move, and it is re-rolled for the next player. 30 picks each, highest score wins.' },
+  { key: 'SNAKES', name: 'Snake & Ladder', tagline: 'Climb ladders, dodge snakes.', allowedPlayers: [2, 3, 4], description: 'Roll and race from 1 to 100. Ladders lift you up, snakes send you down. A six rolls again, and you need the exact number to finish.' },
   { key: 'KILL_TO_ENTER', name: 'Kill to Enter', tagline: 'No capture, no home.', allowedPlayers: [2, 4], description: 'Classic rules, but your home column stays locked until you capture a rival token. Until then your tokens keep circling the board.' },
 ];
 
 async function main() {
-  const roles: RoleName[] = ['SUPER_ADMIN', 'ADMIN', 'SUPPORT', 'PLAYER'];
+  const roles: RoleName[] = ['ROOT_OWNER', 'SUPER_ADMIN', 'ADMIN', 'SUPPORT', 'PLAYER'];
   for (const name of roles) await prisma.role.upsert({ where: { name }, create: { name }, update: {} });
 
   for (const [i, m] of MODES.entries()) {
@@ -37,6 +38,32 @@ async function main() {
       data: { username, passwordHash: await bcrypt.hash(password, 12), referralCode: 'STAFFROOT', welcomeBonusGranted: true, roles: { create: { roleId: role.id } } },
     });
     console.log(`Created super admin "${username}".`);
+  }
+  // Root owner: created once from the environment, never from source code.
+  const rootName = process.env.ROOT_OWNER_USERNAME;
+  const rootPassword = process.env.ROOT_OWNER_PASSWORD;
+  const rootRole = await prisma.role.findUniqueOrThrow({ where: { name: 'ROOT_OWNER' } });
+  const existingRoot = await prisma.userRole.findFirst({ where: { roleId: rootRole.id } });
+  if (existingRoot) {
+    console.log('A root owner already exists (left unchanged).');
+  } else if (!rootName || !rootPassword) {
+    console.log('ROOT_OWNER_USERNAME / ROOT_OWNER_PASSWORD not set: skipping root owner.');
+  } else {
+    if (rootPassword.length < 10) throw new Error('ROOT_OWNER_PASSWORD must be at least 10 characters');
+    if (await prisma.user.findUnique({ where: { username: rootName } })) throw new Error(`Username "${rootName}" is already taken by another staff account`);
+    await prisma.user.create({
+      data: { username: rootName, passwordHash: await bcrypt.hash(rootPassword, 12), mustChangePassword: true, referralCode: 'ROOTOWNER', welcomeBonusGranted: true, roles: { create: { roleId: rootRole.id } } },
+    });
+    console.log(`Created root owner "${rootName}". The password must be changed at first sign-in; remove ROOT_OWNER_PASSWORD from .env afterwards.`);
+  }
+
+  if ((await prisma.prizePool.count()) === 0) {
+    const classic = await prisma.gameMode.findUniqueOrThrow({ where: { key: 'CLASSIC' } });
+    const pools = [[10, 19], [25, 47], [50, 95], [100, 190]];
+    for (const [i, [entry, prize]] of pools.entries()) {
+      await prisma.prizePool.create({ data: { name: `Classic ${entry}`, modeId: classic.id, players: 2, entryPoints: entry, prizePoints: prize, sortOrder: i } });
+    }
+    console.log('Created default prize pools.');
   }
   console.log('Seed complete.');
 }

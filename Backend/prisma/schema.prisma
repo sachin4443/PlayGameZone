@@ -15,6 +15,7 @@ enum UserStatus {
 }
 
 enum RoleName {
+  ROOT_OWNER
   SUPER_ADMIN
   ADMIN
   SUPPORT
@@ -85,6 +86,17 @@ enum MatchStatus {
   BYE
 }
 
+enum AccountRequestType {
+  MOBILE_CHANGE
+  ACCOUNT_DELETE
+}
+
+enum RequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 enum ReferralStatus {
   PENDING
   REWARDED
@@ -99,6 +111,17 @@ model User {
   /// Staff sign-in name. Null for players.
   username            String?    @unique
   passwordHash        String?
+  /// bcrypt hash of the player's login PIN.
+  pinHash             String?
+  failedPinAttempts   Int        @default(0)
+  pinLockedUntil      DateTime?
+  /// Computer-controlled practice opponent (never has a wallet or a login).
+  isBot               Boolean    @default(false)
+  /// Staff must choose a new password before doing anything else.
+  mustChangePassword  Boolean    @default(false)
+  /// false: staff permissions come from the role defaults. true: from StaffPermission rows.
+  permsCustomized     Boolean    @default(false)
+  deletedAt           DateTime?
   status              UserStatus @default(ACTIVE)
   referralCode        String     @unique
   /// Guards the one-time welcome bonus (flipped atomically with the credit).
@@ -121,6 +144,8 @@ model User {
   referredBy        Referral?           @relation("Referee")
   notifications     Notification[]
   auditLogs         AdminAuditLog[]
+  permissions       StaffPermission[]
+  accountRequests   AccountRequest[]
 
   @@index([status])
   @@index([createdAt])
@@ -136,6 +161,37 @@ model UserProfile {
   updatedAt    DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// Per-module actions granted to one staff account.
+model StaffPermission {
+  id      String   @id @default(cuid())
+  userId  String
+  module  String
+  actions String[]
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, module])
+}
+
+/// Requests that only staff may carry out: changing a mobile number or deleting an account.
+model AccountRequest {
+  id          String             @id @default(cuid())
+  userId      String
+  type        AccountRequestType
+  newMobile   String?
+  reason      String             @default("")
+  status      RequestStatus      @default(PENDING)
+  adminRemark String?
+  decidedById String?
+  decidedAt   DateTime?
+  createdAt   DateTime           @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@index([userId])
 }
 
 model Role {
@@ -219,6 +275,28 @@ model GameMode {
   rooms       GameRoom[]
   games       Game[]
   tournaments Tournament[]
+  prizePools  PrizePool[]
+}
+
+/// A standing public table: fixed entry, fixed prize, starts when it fills.
+model PrizePool {
+  id          String   @id @default(cuid())
+  name        String
+  modeId      Int
+  players     Int
+  entryPoints Int
+  /// Paid to the winner; never more than entryPoints * players.
+  prizePoints Int
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  mode  GameMode   @relation(fields: [modeId], references: [id])
+  rooms GameRoom[]
+  games Game[]
+
+  @@index([isActive, sortOrder])
 }
 
 model GameRoom {
@@ -234,10 +312,12 @@ model GameRoom {
   isMatchmaking Boolean        @default(false)
   status        RoomStatus     @default(WAITING)
   expiresAt     DateTime?
+  prizePoolId   String?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 
-  mode    GameMode     @relation(fields: [modeId], references: [id])
+  mode      GameMode     @relation(fields: [modeId], references: [id])
+  prizePool PrizePool?   @relation(fields: [prizePoolId], references: [id])
   host    User         @relation(fields: [hostId], references: [id])
   players RoomPlayer[]
   game    Game?
@@ -276,12 +356,18 @@ model Game {
   commissionPct    Int        @default(0)
   commissionAmount Int        @default(0)
   cancelReason     String?
+  /// Free game against computer players: no points, no leaderboard, no referral credit.
+  isPractice       Boolean    @default(false)
+  /// Prize-pool games pay this fixed amount instead of pool minus commission.
+  fixedPrize       Int?
+  prizePoolId      String?
   startedAt        DateTime   @default(now())
   endedAt          DateTime?
   /// Set exactly once by the settlement/refund transaction.
   settledAt        DateTime?
 
   room            GameRoom?        @relation(fields: [roomId], references: [id])
+  prizePool       PrizePool?       @relation(fields: [prizePoolId], references: [id])
   tournamentMatch TournamentMatch? @relation(fields: [tournamentMatchId], references: [id])
   mode            GameMode         @relation(fields: [modeId], references: [id])
   players         GamePlayer[]

@@ -34,6 +34,8 @@ export interface PlayerState {
   /** Consecutive turns played by the server because the player timed out. */
   missed: number;
   connected: boolean;
+  /** Computer-controlled practice opponent. */
+  bot?: boolean;
 }
 
 export interface LegalMove {
@@ -53,6 +55,8 @@ export interface GameResultState {
 }
 
 export interface GameState {
+  /** Absent on games stored before Snake & Ladder existed. */
+  kind?: 'LUDO';
   rules: Rules;
   players: PlayerState[];
   /** Index into `players` of whoever must act. */
@@ -88,12 +92,14 @@ export interface NewPlayer {
   userId: string;
   name: string;
   avatar: string;
+  bot?: boolean;
 }
 
 export function createGame(rules: Rules, players: NewPlayer[], rng: Rng, now: number): GameState {
   if (players.length < 2 || players.length > 4) throw new EngineError('BAD_PLAYERS', 'A game needs 2 to 4 players');
   const colors = colorsFor(players.length);
   const state: GameState = {
+    kind: 'LUDO',
     rules,
     players: players.map((p, seat) => ({
       seat,
@@ -108,6 +114,7 @@ export function createGame(rules: Rules, players: NewPlayer[], rng: Rng, now: nu
       active: true,
       missed: 0,
       connected: true,
+      ...(p.bot ? { bot: true } : {}),
     })),
     turn: 0,
     phase: 'ROLL',
@@ -413,6 +420,34 @@ export function autoPlay(s: GameState, rng: Rng): GameEvent[] {
   if (s.phase === 'DONE') return [];
   const seat = current(s).seat;
   if (s.phase === 'ROLL') return roll(s, seat, rng);
-  const best = [...s.legal].sort((a, b) => b.to - a.to)[0];
+  const best = chooseMove(s);
   return move(s, seat, best.token, best.die, rng);
+}
+
+/**
+ * Simple playing strategy used for computer players and for turns the server
+ * plays on behalf of an absent player: capture if possible, otherwise get home,
+ * leave the yard, reach a safe cell, and finally advance the leading token.
+ */
+export function chooseMove(s: GameState): LegalMove {
+  const p = current(s);
+  const score = (m: LegalMove): number => {
+    let v = m.to;
+    if (m.to === HOME_STEP) v += 400;
+    if (m.from === YARD) v += 250;
+    if (isOnTrack(m.to)) {
+      const cell = globalCell(p.color, m.to);
+      const safe = isSafeCell(s.rules, cell);
+      if (safe) v += 60;
+      else {
+        for (const other of s.players) {
+          if (other.seat === p.seat || !other.active) continue;
+          const there = other.tokens.filter((t) => isOnTrack(t) && globalCell(other.color, t) === cell).length;
+          if (there > 0 && !(s.rules.blockSafe && there >= 2)) v += 600;
+        }
+      }
+    }
+    return v;
+  };
+  return [...s.legal].sort((a, b) => score(b) - score(a))[0];
 }

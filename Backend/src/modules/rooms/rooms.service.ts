@@ -10,6 +10,7 @@ import { notify } from '../notifications/notifications.service';
 
 const roomInclude = {
   mode: { select: { key: true, name: true } },
+  prizePool: { select: { id: true, name: true, prizePoints: true } },
   game: { select: { id: true, status: true } },
   players: { orderBy: { seat: 'asc' as const }, include: { user: { select: { profile: { select: { displayName: true, avatar: true } } } } } },
 } satisfies Prisma.GameRoomInclude;
@@ -25,7 +26,8 @@ export function toRoomView(r: RoomRow) {
     hostId: r.hostId,
     maxPlayers: r.maxPlayers,
     entryPoints: r.entryPoints,
-    prizePool: r.entryPoints * r.maxPlayers,
+    prizePool: r.prizePool?.prizePoints ?? r.entryPoints * r.maxPlayers,
+    pool: r.prizePool ? { id: r.prizePool.id, name: r.prizePool.name } : null,
     visibility: r.visibility,
     isMatchmaking: r.isMatchmaking,
     status: r.status,
@@ -231,15 +233,20 @@ async function maybeAutoStart(view: RoomView) {
  * size and entry, or open a new one. An advisory lock per queue makes the
  * find-or-create step atomic, so two simultaneous players always meet.
  */
-export async function quickMatch(userId: string, spec: RoomSpec): Promise<RoomView> {
-  const { mode, settings } = await validateSpec(spec);
-  const queueKey = `mm:${mode.id}:${spec.maxPlayers}:${spec.entryPoints}`;
+export async function quickMatch(userId: string, spec: RoomSpec, pool?: { id: string; name: string; modeId: number }): Promise<RoomView> {
+  // Prize pools are configured by staff, so the player-facing entry limits do not apply to them.
+  const { mode, settings } = pool
+    ? { mode: await prisma.gameMode.findUniqueOrThrow({ where: { id: pool.modeId } }), settings: await getSettings() }
+    : await validateSpec(spec);
+  if (!mode.isActive) throw badRequest('MODE_UNAVAILABLE', 'This game mode is not available');
+  const poolId = pool?.id ?? null;
+  const queueKey = pool ? `pool:${pool.id}` : `mm:${mode.id}:${spec.maxPlayers}:${spec.entryPoints}`;
   const code = await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${queueKey}))`;
     await assertFree(tx, userId);
     await assertCanAfford(tx, userId, spec.entryPoints);
     const candidates = await tx.gameRoom.findMany({
-      where: { status: 'WAITING', isMatchmaking: true, modeId: mode.id, maxPlayers: spec.maxPlayers, entryPoints: spec.entryPoints, expiresAt: { gt: new Date() } },
+      where: { status: 'WAITING', isMatchmaking: true, modeId: mode.id, maxPlayers: spec.maxPlayers, entryPoints: spec.entryPoints, prizePoolId: poolId, expiresAt: { gt: new Date() } },
       orderBy: { createdAt: 'asc' },
       include: { _count: { select: { players: true } } },
       take: 5,
@@ -252,7 +259,8 @@ export async function quickMatch(userId: string, spec: RoomSpec): Promise<RoomVi
     const created = await tx.gameRoom.create({
       data: {
         code: await allocateCode(tx),
-        name: `${mode.name} match`,
+        name: pool?.name ?? `${mode.name} match`,
+        prizePoolId: poolId,
         modeId: mode.id,
         hostId: userId,
         maxPlayers: spec.maxPlayers,
@@ -302,4 +310,31 @@ export async function sweepExpiredRooms(): Promise<number> {
     });
   }
   return closed;
+}
+
+/** Active prize-pool tables with how many players are waiting at each. */
+export async function listPrizePools() {
+  const pools = await prisma.prizePool.findMany({
+    where: { isActive: true, mode: { isActive: true } },
+    orderBy: [{ sortOrder: 'asc' }, { entryPoints: 'asc' }],
+    include: { mode: { select: { key: true, name: true } } },
+  });
+  const waiting = await prisma.gameRoom.findMany({
+    where: { status: 'WAITING', prizePoolId: { in: pools.map((p) => p.id) }, expiresAt: { gt: new Date() } },
+    select: { prizePoolId: true, _count: { select: { players: true } } },
+  });
+  const live = await prisma.game.groupBy({ by: ['prizePoolId'], where: { status: 'ACTIVE', prizePoolId: { in: pools.map((p) => p.id) } }, _count: true });
+  return pools.map((p) => {
+    const joined = waiting.filter((w) => w.prizePoolId === p.id).reduce((n, w) => Math.max(n, w._count.players), 0);
+    return {
+      id: p.id, name: p.name, mode: p.mode, players: p.players, entryPoints: p.entryPoints, prizePoints: p.prizePoints,
+      joined, slotsLeft: p.players - joined, status: joined > 0 ? 'FILLING' : 'OPEN', liveGames: live.find((l) => l.prizePoolId === p.id)?._count ?? 0,
+    };
+  });
+}
+
+export async function joinPrizePool(userId: string, poolId: string): Promise<RoomView> {
+  const pool = await prisma.prizePool.findUnique({ where: { id: poolId } });
+  if (!pool || !pool.isActive) throw badRequest('POOL_UNAVAILABLE', 'This prize pool is not available');
+  return quickMatch(userId, { modeKey: '', maxPlayers: pool.players, entryPoints: pool.entryPoints }, { id: pool.id, name: pool.name, modeId: pool.modeId });
 }

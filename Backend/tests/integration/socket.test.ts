@@ -6,7 +6,7 @@ import { createApp } from '../../src/app';
 import { gameManager } from '../../src/modules/games/game.manager';
 import { createRoom } from '../../src/modules/rooms/rooms.service';
 import { createSocketServer } from '../../src/sockets';
-import { balanceOf, newPlayer, resetDb, scripted } from '../helpers';
+import { balanceOf, ludo, newPlayer, resetDb, scripted } from '../helpers';
 
 let http: HttpServer;
 let url = '';
@@ -90,7 +90,7 @@ describe('realtime multiplayer over Socket.IO', () => {
     expect(resync.data.state.players[1].connected).toBe(true);
 
     // A token kill is announced, and the winner is decided and paid by the server.
-    const state = gameManager.getState(gameId)!;
+    const state = ludo(gameId);
     state.players[0].tokens = [27, 56, 56, 56];
     state.players[1].tokens = [4, -10, -10, -10];
     gameManager.rng = scripted([3]);

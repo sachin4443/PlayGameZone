@@ -6,7 +6,7 @@ import { cancelGame, settleGame } from '../../src/modules/games/games.service';
 import { getLeaderboard } from '../../src/modules/leaderboard/leaderboard.routes';
 import { createRoom, getActiveContext, getRoomView, joinRoom, leaveRoom, quickMatch, setReady, startRoom, sweepExpiredRooms } from '../../src/modules/rooms/rooms.service';
 import { debit } from '../../src/modules/wallet/wallet.service';
-import { balanceOf, lockedOf, newPlayer, resetDb, scripted, setSetting } from '../helpers';
+import { balanceOf, lockedOf, ludo, newPlayer, resetDb, scripted, setSetting } from '../helpers';
 
 type Player = Awaited<ReturnType<typeof newPlayer>>;
 beforeAll(resetDb);
@@ -20,12 +20,12 @@ async function startedGame(players: Player[], over: Partial<Parameters<typeof cr
     await setReady(p.id, room.code, true);
   }
   const gameId = await startRoom(players[0].id, room.code);
-  return { gameId, code: room.code, state: gameManager.getState(gameId)! };
+  return { gameId, code: room.code, state: ludo(gameId) };
 }
 
 /** Puts seat 0 one step from victory and plays the winning move. */
 async function winAsHost(gameId: string, host: Player) {
-  const state = gameManager.getState(gameId)!;
+  const state = ludo(gameId);
   state.players[0].tokens = [HOME_STEP, HOME_STEP, HOME_STEP, 55];
   state.turn = 0;
   state.phase = 'ROLL';
@@ -270,7 +270,7 @@ describe('reconnection', () => {
     await gameManager.setConnected(b.id, true);
     expect(state.players[1].connected).toBe(true);
     expect(gameManager.activeGameIds(b.id)).toEqual([gameId]);
-    expect(gameManager.getState(gameId)!.players[0].tokens[1]).toBe(0);
+    expect(ludo(gameId).players[0].tokens[1]).toBe(0);
     await gameManager.cancel(gameId, 'cleanup');
   });
 
@@ -302,7 +302,7 @@ describe('reconnection', () => {
     expect(gameManager.getState(gameId)).toBeUndefined();
 
     await gameManager.resumeAll();
-    const restored = gameManager.getState(gameId)!;
+    const restored = ludo(gameId);
     expect(restored.players[0].tokens[2]).toBe(0);
     expect(restored.turn).toBe(0); // the six earned another roll
     await gameManager.setConnected(a.id, true);

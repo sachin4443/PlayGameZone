@@ -4,7 +4,8 @@ import { getSettings } from '../../config/settings';
 import { prisma } from '../../lib/prisma';
 import { realtime } from '../../services/realtime';
 import { AppError, badRequest, forbidden, notFound } from '../../utils/errors';
-import { EngineError, autoPlay, forfeit, move, roll, timeUp, type GameEvent, type GameState, type Rng } from './engine/engine';
+import { EngineError, type Rng } from './engine/engine';
+import { engine, type AnyEvent as GameEvent, type AnyState as GameState } from './engine';
 import { cancelGame, settleGame, type SettleOutcome, type StartedGame } from './games.service';
 
 /**
@@ -30,6 +31,8 @@ interface Runtime {
 type FinishListener = (outcome: SettleOutcome) => void | Promise<void>;
 
 const DISCONNECTED_TURN_MS = 5_000;
+/** Pause before a computer player acts, so people can follow the game. */
+const BOT_THINK_MS = 1_100;
 
 class GameManager {
   private runtimes = new Map<string, Runtime>();
@@ -49,7 +52,7 @@ class GameManager {
     const rt: Runtime = { gameId: started.gameId, state: started.state, queue: Promise.resolve(), moveNo: 0, graceTimers: new Map() };
     this.track(rt);
     for (const userId of started.userIds) realtime.joinUser(userId, `game:${rt.gameId}`);
-    for (const p of rt.state.players) p.connected = realtime.isOnline(p.userId) || !realtimeAttached();
+    for (const p of rt.state.players) p.connected = !!p.bot || realtime.isOnline(p.userId) || !realtimeAttached();
     await this.enqueue(rt, async () => {
       await this.armTurn(rt);
       await this.persist(rt, null);
@@ -79,7 +82,7 @@ class GameManager {
         if (state.phase === 'DONE') return this.conclude(rt);
         // Nobody is connected right after a restart: everyone gets a fresh reconnect window.
         for (const p of state.players) {
-          if (!p.active) continue;
+          if (!p.active || p.bot) continue;
           p.connected = false;
           await this.startGrace(rt, p.seat);
         }
@@ -133,16 +136,16 @@ class GameManager {
   // ── player actions ──────────────────────────────────────────────
 
   roll(gameId: string, userId: string) {
-    return this.playerAction(gameId, userId, (rt, seat) => roll(rt.state, seat, this.rng), 'ROLL');
+    return this.playerAction(gameId, userId, (rt, seat) => engine.roll(rt.state, seat, this.rng), 'ROLL');
   }
 
   move(gameId: string, userId: string, token: number, die?: number) {
-    return this.playerAction(gameId, userId, (rt, seat) => move(rt.state, seat, token, die, this.rng), 'MOVE');
+    return this.playerAction(gameId, userId, (rt, seat) => engine.move(rt.state, seat, token, die, this.rng), 'MOVE');
   }
 
   /** Voluntarily leaving a running game forfeits it. */
   leave(gameId: string, userId: string) {
-    return this.playerAction(gameId, userId, (rt, seat) => forfeit(rt.state, seat, this.rng), 'FORFEIT');
+    return this.playerAction(gameId, userId, (rt, seat) => engine.forfeit(rt.state, seat, this.rng), 'FORFEIT');
   }
 
   private playerAction(gameId: string, userId: string, fn: (rt: Runtime, seat: number) => GameEvent[], type: string) {
@@ -195,7 +198,7 @@ class GameManager {
       this.enqueue(rt, async () => {
         const p = rt.state.players.find((x) => x.seat === seat);
         if (!p || p.connected || !p.active) return;
-        await this.commit(rt, forfeit(rt.state, seat, this.rng), { type: 'DISCONNECT_FORFEIT', seat, userId: p.userId });
+        await this.commit(rt, engine.forfeit(rt.state, seat, this.rng), { type: 'DISCONNECT_FORFEIT', seat, userId: p.userId });
       }).catch((e) => console.error('[game] grace timer failed', e));
     }, disconnectTimeoutSec * 1000);
     timer.unref();
@@ -233,7 +236,7 @@ class GameManager {
     if (s.phase === 'DONE') return;
     const { turnTimeSec } = await getSettings();
     const current = s.players[s.turn];
-    const ms = current.connected ? turnTimeSec * 1000 : Math.min(turnTimeSec * 1000, DISCONNECTED_TURN_MS);
+    const ms = current.bot ? BOT_THINK_MS : current.connected ? turnTimeSec * 1000 : Math.min(turnTimeSec * 1000, DISCONNECTED_TURN_MS);
     s.turnDeadline = Date.now() + ms;
     rt.turnTimer = setTimeout(() => {
       this.enqueue(rt, () => this.onTurnTimeout(rt)).catch((e) => console.error('[game] turn timer failed', e));
@@ -247,8 +250,8 @@ class GameManager {
     if (s.endsAt === null || s.phase === 'DONE') return;
     rt.gameTimer = setTimeout(() => {
       this.enqueue(rt, async () => {
-        if (rt.state.phase === 'DONE') return;
-        await this.commit(rt, timeUp(rt.state), { type: 'TIME_UP', seat: -1 });
+        if (rt.state.phase === 'DONE' || !this.runtimes.has(rt.gameId)) return;
+        await this.commit(rt, engine.timeUp(rt.state), { type: 'TIME_UP', seat: -1 });
       }).catch((e) => console.error('[game] clock failed', e));
     }, Math.max(0, s.endsAt - Date.now()));
     rt.gameTimer.unref();
@@ -260,14 +263,19 @@ class GameManager {
     if (s.phase === 'DONE' || !this.runtimes.has(rt.gameId)) return;
     const { maxMissedTurns } = await getSettings();
     const p = s.players[s.turn];
-    p.missed += 1;
-    if (p.missed > maxMissedTurns) {
-      await this.commit(rt, forfeit(s, p.seat, this.rng), { type: 'TIMEOUT_FORFEIT', seat: p.seat, userId: p.userId });
+    if (p.bot) {
+      // Computer players act one step at a time (roll, then move) at a watchable pace.
+      await this.commit(rt, engine.autoPlay(s, this.rng), { type: 'BOT', seat: p.seat, userId: p.userId });
       return;
     }
-    const events = autoPlay(s, this.rng);
+    p.missed += 1;
+    if (p.missed > maxMissedTurns) {
+      await this.commit(rt, engine.forfeit(s, p.seat, this.rng), { type: 'TIMEOUT_FORFEIT', seat: p.seat, userId: p.userId });
+      return;
+    }
+    const events = engine.autoPlay(s, this.rng);
     // Finish the whole turn in one go so idle players do not stall the table twice.
-    if (s.phase === 'MOVE' && s.players[s.turn].seat === p.seat) events.push(...autoPlay(s, this.rng));
+    if (s.phase === 'MOVE' && s.players[s.turn].seat === p.seat) events.push(...engine.autoPlay(s, this.rng));
     await this.commit(rt, events, { type: 'AUTO', seat: p.seat, userId: p.userId });
   }
 
@@ -285,7 +293,13 @@ class GameManager {
       }
     }
     this.broadcast(rt, events);
-    if (done) await this.conclude(rt);
+    if (done) return this.conclude(rt);
+    // A practice game with no human left has nobody to play for.
+    if (!rt.state.players.some((p) => p.active && !p.bot)) {
+      await cancelGame(rt.gameId, 'All players left');
+      this.untrack(rt);
+      realtime.leaveAll(`game:${rt.gameId}`);
+    }
   }
 
   private async persist(rt: Runtime, moveRow: { type: string; seat: number; userId?: string; events: GameEvent[] } | null) {

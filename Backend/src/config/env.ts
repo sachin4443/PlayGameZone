@@ -9,10 +9,6 @@ const schema = z.object({
   JWT_SECRET: z.string().min(16, 'JWT_SECRET must be at least 16 characters'),
   JWT_EXPIRES_IN: z.string().default('7d'),
   AUTH_PROVIDER: z.enum(['dev', 'sms']).default('dev'),
-  ALLOW_DEV_AUTH_IN_PRODUCTION: z
-    .string()
-    .default('false')
-    .transform((v) => v === 'true'),
 });
 
 const parsed = schema.safeParse(process.env);
@@ -23,14 +19,6 @@ if (!parsed.success) {
 }
 
 const data = parsed.data;
-
-if (data.NODE_ENV === 'production' && data.AUTH_PROVIDER === 'dev' && !data.ALLOW_DEV_AUTH_IN_PRODUCTION) {
-  console.error(
-    'AUTH_PROVIDER=dev is a temporary development login and is refused in production. ' +
-      'Configure AUTH_PROVIDER=sms, or set ALLOW_DEV_AUTH_IN_PRODUCTION=true to accept the risk.',
-  );
-  process.exit(1);
-}
 
 export const env = {
   ...data,

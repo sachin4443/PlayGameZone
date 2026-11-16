@@ -1,7 +1,11 @@
 import { prisma } from '../src/lib/prisma';
 import { invalidateSettings } from '../src/config/settings';
 import { loginWithVerifiedMobile } from '../src/modules/auth/auth.service';
-import type { Rng } from '../src/modules/games/engine/engine';
+import type { GameState, Rng } from '../src/modules/games/engine/engine';
+import { gameManager } from '../src/modules/games/game.manager';
+
+/** Live state of a Ludo game (tests only create Ludo games through rooms). */
+export const ludo = (gameId: string) => gameManager.getState(gameId) as GameState;
 
 /** Empties the TEST database (guarded in setup.ts) and restores reference data. */
 export async function resetDb() {
@@ -9,9 +13,9 @@ export async function resetDb() {
   const tables = await prisma.$queryRaw<{ tablename: string }[]>`SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> '_prisma_migrations'`;
   await prisma.$executeRawUnsafe(`TRUNCATE ${tables.map((t) => `"${t.tablename}"`).join(', ')} RESTART IDENTITY CASCADE`);
   invalidateSettings();
-  for (const name of ['SUPER_ADMIN', 'ADMIN', 'SUPPORT', 'PLAYER'] as const) await prisma.role.create({ data: { name } });
-  for (const [i, key] of ['CLASSIC', 'SCORE', 'MANIA', 'PICK_DICE', 'KILL_TO_ENTER'].entries()) {
-    await prisma.gameMode.create({ data: { key, name: key, sortOrder: i } });
+  for (const name of ['ROOT_OWNER', 'SUPER_ADMIN', 'ADMIN', 'SUPPORT', 'PLAYER'] as const) await prisma.role.create({ data: { name } });
+  for (const [i, key] of ['CLASSIC', 'SCORE', 'MANIA', 'PICK_DICE', 'KILL_TO_ENTER', 'SNAKES'].entries()) {
+    await prisma.gameMode.create({ data: { key, name: key, sortOrder: i, allowedPlayers: key === 'SNAKES' ? [2, 3, 4] : [2, 4] } });
   }
 }
 
