@@ -58,6 +58,8 @@ export interface RoomView {
   status: 'WAITING' | 'IN_GAME' | 'COMPLETED' | 'CANCELLED';
   expiresAt: string | null;
   gameId: string | null;
+  firstTurnUserId: string | null;
+  firstTurnSetBy: 'HOST' | 'ADMIN' | null;
   players: { userId: string; seat: number; isReady: boolean; name: string; avatar: string }[];
 }
 

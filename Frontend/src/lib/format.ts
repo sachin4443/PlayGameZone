@@ -36,4 +36,8 @@ export const TX_LABEL: Record<string, string> = {
   TOURNAMENT_ENTRY: 'Tournament entry',
   TOURNAMENT_REWARD: 'Tournament reward',
   REFERRAL_BONUS: 'Referral bonus',
+  POINTS_REQUEST: 'Points request approved',
+  WITHDRAW_HOLD: 'Withdrawal reserved',
+  WITHDRAW: 'Withdrawal approved',
+  WITHDRAW_RELEASE: 'Withdrawal returned',
 };

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { PageHead } from '../components/PageHead';
+import { PointRequests } from '../components/PointRequests';
 import { Empty, ErrorNote, PageLoader, PointsPill } from '../components/ui';
 import { dateTime, pts, TX_LABEL } from '../lib/format';
 import { useFetch } from '../lib/useFetch';
@@ -31,7 +32,8 @@ export default function WalletPage() {
           ))}
         </div>
       </section>
-      <p className="mt-3 text-xs text-muted">Points are earned by playing. They cannot be purchased, withdrawn or sent to other players.</p>
+      <p className="mt-3 rounded-xl border border-line bg-surface px-3 py-2 text-xs text-muted">Virtual points only. Points are used inside PlayerX Ludo, have no cash value, and cannot be bought, sold, exchanged for money or sent to other players.</p>
+      <PointRequests />
 
       <h2 className="mb-2 mt-5 text-base font-extrabold">Transaction history</h2>
       <div className="mb-3 grid grid-cols-2 gap-2">
@@ -50,12 +52,12 @@ export default function WalletPage() {
           <div className="card divide-y divide-line">
             {data!.items.map((t) => {
               // A game loss only releases escrow that was already debited at entry.
-              const neutral = t.type === 'GAME_LOSS';
+              const neutral = t.type === 'GAME_LOSS' || t.type === 'WITHDRAW';
               return (
                 <div key={t.id} className="flex items-center justify-between gap-3 px-4 py-3">
                   <div className="min-w-0">
                     <p className="text-sm font-bold">{TX_LABEL[t.type] ?? t.type}</p>
-                    <p className="truncate text-xs text-muted">{dateTime(t.createdAt)}{t.note ? ` · ${t.note}` : neutral ? ' · entry lost' : ''}</p>
+                    <p className="truncate text-xs text-muted">{dateTime(t.createdAt)}{t.note ? ` · ${t.note}` : t.type === 'GAME_LOSS' ? ' · entry lost' : t.type === 'WITHDRAW' ? ' · reserved points removed' : ''}</p>
                   </div>
                   <div className="shrink-0 text-right">
                     <p className={`text-sm font-extrabold ${neutral ? 'text-muted' : t.direction === 'CREDIT' ? 'text-emerald-500' : 'text-red-500'}`}>{neutral ? '' : t.direction === 'CREDIT' ? '+' : '-'}{neutral ? '—' : pts(t.amount)}</p>

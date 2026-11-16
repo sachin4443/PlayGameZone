@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { Shell } from '../components/Layout';
+import { ThemeSwitch } from '../components/ThemeSwitch';
 import { Icon, Logo, Spinner, Wordmark } from '../components/ui';
 import { api, errorCode, errorMessage } from '../lib/api';
 import type { Me } from '../lib/types';
@@ -85,10 +86,11 @@ export default function LoginPage() {
       <div className="flex min-h-dvh flex-col px-5 pb-10 pt-10 lg:min-h-0">
         <div className="mb-6 flex items-center gap-3">
           <Logo size={52} />
-          <div>
+          <div className="flex-1">
             <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-brand">Welcome</p>
             <h1 className="text-2xl"><Wordmark /></h1>
           </div>
+          <div className="w-28"><ThemeSwitch compact /></div>
         </div>
 
         <div className="mb-4 grid grid-cols-2 gap-1 rounded-2xl bg-surface-2 p-1" role="tablist">

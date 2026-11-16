@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { InstallBanner } from '../components/InstallApp';
 import { ModeArt } from '../components/ModeArt';
 import { PlaySheet } from '../components/PlaySheet';
 import { PoolCard, type Pool } from '../components/PoolCard';
@@ -108,6 +109,8 @@ export default function HomePage() {
           ))}
         </div>
       </section>
+
+      <InstallBanner />
 
       {/* Resume */}
       {data.active.gameIds.map((id) => (

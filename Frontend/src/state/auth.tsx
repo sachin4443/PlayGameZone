@@ -15,11 +15,28 @@ interface AuthValue {
 
 const AuthContext = createContext<AuthValue | null>(null);
 
-export function applyTheme(theme: 'light' | 'dark' | 'auto') {
-  const dark = theme === 'dark' || (theme === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+export type Theme = 'light' | 'dark' | 'auto';
+const systemDark = window.matchMedia('(prefers-color-scheme: dark)');
+
+export const storedTheme = (): Theme => {
+  const t = localStorage.getItem('px.theme');
+  return t === 'light' || t === 'dark' || t === 'auto' ? t : 'auto';
+};
+
+/** Applies and remembers a theme. "auto" follows the device setting, live. */
+export function applyTheme(theme: Theme) {
+  const dark = theme === 'dark' || (theme === 'auto' && systemDark.matches);
   document.documentElement.classList.toggle('dark', dark);
+  document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#0c0d1f' : '#f4f3fb');
   localStorage.setItem('px.theme', theme);
+  window.dispatchEvent(new Event('px:theme'));
 }
+
+// Keep "System default" in step when the device switches between light and dark.
+systemDark.addEventListener('change', () => {
+  if (storedTheme() === 'auto') applyTheme('auto');
+});
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUserState] = useState<Me | null>(null);

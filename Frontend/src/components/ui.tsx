@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useId, type ReactNode } from 'react';
 
 const ICONS: Record<string, string> = {
   home: 'M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z',
@@ -44,15 +44,17 @@ export function Icon({ name, size = 20, className = '' }: { name: keyof typeof I
 }
 
 export function Logo({ size = 36 }: { size?: number }) {
+  // Each instance needs its own gradient id: a shared id breaks when the first copy is hidden.
+  const id = `px-logo-${useId().replace(/:/g, '')}`;
   return (
     <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
       <defs>
-        <linearGradient id="px-logo" x1="0" y1="0" x2="1" y2="1">
+        <linearGradient id={id} x1="0" y1="0" x2="1" y2="1">
           <stop offset="0" stopColor="#7c5cff" />
           <stop offset="1" stopColor="#ff4d8d" />
         </linearGradient>
       </defs>
-      <rect width="64" height="64" rx="16" fill="url(#px-logo)" />
+      <rect width="64" height="64" rx="16" fill={`url(#${id})`} />
       <g fill="#fff">
         <circle cx="20" cy="20" r="6" /><circle cx="44" cy="20" r="6" /><circle cx="32" cy="32" r="6" /><circle cx="20" cy="44" r="6" /><circle cx="44" cy="44" r="6" />
       </g>

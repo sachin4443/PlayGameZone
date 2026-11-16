@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Avatar, ErrorNote, Icon, PageLoader, PointsPill, Spinner } from '../components/ui';
 import { clock } from '../lib/format';
+import { api, errorMessage } from '../lib/api';
 import { emit, getSocket } from '../lib/socket';
 import type { RoomView } from '../lib/types';
 import { useAuth } from '../state/auth';
@@ -128,6 +129,25 @@ export default function RoomPage() {
           ),
         )}
       </div>
+
+      {!room.isMatchmaking && !closed && (
+        <section className="card mt-4 p-4">
+          <label className="label" htmlFor="first-turn">First turn</label>
+          {isHost && room.firstTurnSetBy !== 'ADMIN' ? (
+            <select id="first-turn" className="input" value={room.firstTurnUserId ?? ''} disabled={busy}
+              onChange={async (e) => { try { setRoom((await api.post<RoomView>(`/rooms/${room.code}/first-turn`, { userId: e.target.value || null })).data); } catch (err) { toast(errorMessage(err), 'error'); } }}>
+              <option value="">Random (decided when the game starts)</option>
+              {room.players.map((p) => <option key={p.userId} value={p.userId}>{p.userId === user.id ? 'Me' : p.name}</option>)}
+            </select>
+          ) : (
+            <p className="text-sm font-bold">
+              {room.firstTurnUserId ? (room.players.find((p) => p.userId === room.firstTurnUserId)?.userId === user.id ? 'You' : room.players.find((p) => p.userId === room.firstTurnUserId)?.name) : 'Random'}
+              <span className="ml-2 text-xs font-medium text-muted">{room.firstTurnUserId ? `chosen by ${room.firstTurnSetBy === 'ADMIN' ? 'PlayerX staff' : 'the host'}` : 'decided when the game starts'}</span>
+            </p>
+          )}
+          <p className="mt-1 text-[11px] text-muted">Everyone in the room sees this setting. The dice are always rolled at random by the server.</p>
+        </section>
+      )}
 
       {closed ? (
         <div className="mt-5"><ErrorNote message="This room is closed." onRetry={() => navigate('/')} /></div>

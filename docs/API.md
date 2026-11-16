@@ -31,6 +31,7 @@ Lists that page accept `page` and `pageSize` and return `{ items, total, page, p
 | GET / POST | `/users/me/requests` | list / create `{ type: MOBILE_CHANGE\|ACCOUNT_DELETE, newMobile?, reason }` – decided by staff |
 | GET | `/wallet` | `{ balance, locked, totalEarned, totalSpent }` |
 | GET | `/wallet/transactions` | filters: `type`, `from`, `to` (ISO dates) |
+| GET / POST | `/wallet/requests` | list / create `{ type: ADD\|WITHDRAW, amount, note? }` – virtual points, decided by staff |
 | GET | `/games/modes` | active modes with effective rules |
 | POST | `/games/practice` | `{ modeKey, players }` – free game against computer players → `{ gameId }` |
 | GET | `/games/live` | games in progress |
@@ -45,6 +46,7 @@ Lists that page accept `page` and `pageSize` and return `{ items, total, page, p
 | POST | `/rooms/join` | `{ code }` |
 | GET | `/rooms/:code` | room details |
 | POST | `/rooms/:code/ready` | `{ ready }` |
+| POST | `/rooms/:code/first-turn` | host only: `{ userId \| null }` (null = random); visible to all players |
 | POST | `/rooms/:code/start` | host only → `{ gameId }` |
 | POST | `/rooms/:code/leave` | |
 | GET | `/tournaments` | list |
@@ -68,7 +70,7 @@ everything except `/admin/me` and `/admin/auth/change-password`.
 | POST | `/admin/auth/login` | public | `{ username, password }` → `{ token, user, mustChangePassword }` |
 | POST | `/admin/auth/change-password` | signed in | `{ currentPassword, newPassword }` |
 | GET | `/admin/me` | signed in | profile, role, permission map, module and action lists |
-| GET | `/admin/notifications/summary` | signed in | `{ accountRequests }` pending count (polled by the panel) |
+| GET | `/admin/notifications/summary` | signed in | `{ accountRequests, pointRequests }` pending counts (polled by the panel) |
 | GET | `/admin/dashboard` | dashboard:read | users, games, points issued / in circulation / in escrow |
 | GET | `/admin/users`, `/admin/users/:id`, `/admin/users/:id/transactions` | users:read | `search`, `status` |
 | POST | `/admin/users/:id/status` | users:update | `{ status: ACTIVE\|BLOCKED, reason }` |
@@ -80,6 +82,11 @@ everything except `/admin/me` and `/admin/auth/change-password`.
 | GET | `/admin/games`, `/admin/games/:id` | games:read | `status` |
 | POST | `/admin/games/:id/cancel` | games:manage | `{ reason }` – cancels and refunds every entry |
 | GET | `/admin/rooms` | rooms:read | `status`, `visibility` |
+| PATCH | `/admin/rooms/:id` | rooms:manage | `{ firstTurnUserId \| null }` – waiting non-matchmaking rooms only; shown to players |
+| POST | `/admin/rooms/:id/close` | rooms:manage | `{ reason }` – closes a room that has not started |
+| GET | `/admin/point-requests` | pointRequests:read | `status`, `type`, `search` |
+| POST | `/admin/point-requests/:id/approve` | pointRequests:approve | `{ remark? }` – applies the wallet change once |
+| POST | `/admin/point-requests/:id/reject` | pointRequests:reject | `{ remark }` (required) |
 | GET | `/admin/prize-pools` | prizePools:read | |
 | POST / PUT / DELETE | `/admin/prize-pools`, `/admin/prize-pools/:id` | prizePools:create / update / delete | `{ name, modeKey, players, entryPoints, prizePoints, isActive, sortOrder }`; a played pool is disabled instead of deleted |
 | GET / PUT | `/admin/settings` | settings:read / manage | PUT body is `{ key: value, ... }` |
@@ -103,7 +110,7 @@ themselves, and only the root owner can create or manage super admins.
 `welcomeBonusPoints`, `platformCommissionPct`, `entryPointsMin`, `entryPointsMax`,
 `referrerRewardPoints`, `refereeRewardPoints`, `turnTimeSec`, `maxMissedTurns`,
 `disconnectTimeoutSec`, `matchmakingTimeoutSec`, `roomIdleTimeoutSec`, `captchaEnabled`,
-`captchaLength`, `tournamentPrizeSplit`.
+`captchaLength`, `tournamentPrizeSplit`, `pointRequestsEnabled`, `pointRequestMax`.
 
 ### Rate limits
 

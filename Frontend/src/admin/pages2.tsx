@@ -312,3 +312,70 @@ export function StaffPage() {
     </div>
   );
 }
+
+// ── point requests (virtual points) ───────────────────────────────
+
+interface PReq { id: string; userId: string; name: string; mobile: string | null; balance: number; type: 'ADD' | 'WITHDRAW'; amount: number; note: string; status: string; adminRemark: string | null; createdAt: string }
+
+export function PointRequestsPage() {
+  const { has, refreshBadges } = useStaff();
+  const toast = useToast();
+  const [status, setStatus] = useState<'PENDING' | 'APPROVED' | 'REJECTED' | ''>('PENDING');
+  const [type, setType] = useState<'' | 'ADD' | 'WITHDRAW'>('');
+  const [search, setSearch] = useState('');
+  const [query, setQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const { data, error, loading, reload } = useAdmin<{ items: PReq[]; total: number; pageSize: number }>('/admin/point-requests', { page, ...(status ? { status } : {}), ...(type ? { type } : {}), ...(query ? { search: query } : {}) });
+
+  useEffect(() => {
+    const t = setInterval(() => void reload(), 15000);
+    return () => clearInterval(t);
+  }, [reload]);
+
+  const decide = async (r: PReq, action: 'approve' | 'reject') => {
+    const remark = action === 'reject'
+      ? window.prompt('Reason for rejecting (the player will see this):')
+      : window.confirm(r.type === 'ADD' ? `Add ${pts(r.amount)} points to ${r.name}'s wallet?` : `Remove the ${pts(r.amount)} reserved points from ${r.name}'s wallet?`) ? '' : null;
+    if (remark === null || (action === 'reject' && !remark.trim())) return;
+    try {
+      await adminApi.post(`/admin/point-requests/${r.id}/${action}`, { remark });
+      toast(action === 'approve' ? 'Request approved and wallet updated' : 'Request rejected', 'success');
+      void reload();
+      refreshBadges();
+    } catch (err) {
+      toast(errorMessage(err), 'error');
+    }
+  };
+
+  return (
+    <div>
+      <Title>Point requests</Title>
+      <p className="mb-4 rounded-xl border border-line bg-surface px-4 py-3 text-sm text-muted">These are requests for virtual in-app points. No payment is involved and none is recorded: approving an "add" credits points, approving a "withdraw" removes the points that were reserved.</p>
+      <form className="mb-4 flex gap-2" onSubmit={(e) => { e.preventDefault(); setQuery(search.trim()); setPage(1); }}>
+        <input className="input" placeholder="Search by mobile or name" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search requests" />
+        <select className="input !w-40" value={type} onChange={(e) => { setType(e.target.value as typeof type); setPage(1); }} aria-label="Request type"><option value="">All types</option><option value="ADD">Add points</option><option value="WITHDRAW">Withdraw points</option></select>
+        <button className="btn-primary">Search</button>
+      </form>
+      <Tabs value={status} options={[['PENDING', 'Pending'], ['APPROVED', 'Approved'], ['REJECTED', 'Rejected'], ['', 'All']]} onChange={(v) => { setStatus(v); setPage(1); }} />
+      <State error={error} loading={loading && !data} reload={reload} empty={data?.items.length === 0}>
+        <Table head={['Received', 'Player', 'Request', 'Current balance', 'Note', 'Status', '']}>
+          {data?.items.map((r) => (
+            <tr key={r.id}>
+              <td className="whitespace-nowrap text-muted">{dateTime(r.createdAt)}</td>
+              <td><span className="font-bold">{r.name}</span><span className="block text-xs text-muted">{r.mobile}</span></td>
+              <td className="font-bold"><span className={r.type === 'ADD' ? 'text-emerald-500' : 'text-accent'}>{r.type === 'ADD' ? 'Add' : 'Withdraw'}</span> {pts(r.amount)}</td>
+              <td>{pts(r.balance)}</td>
+              <td className="max-w-xs text-muted">{r.note}</td>
+              <td><Badge tone={r.status === 'PENDING' ? 'warn' : r.status === 'APPROVED' ? 'ok' : 'bad'}>{r.status}</Badge>{r.adminRemark && <span className="block text-xs text-muted">{r.adminRemark}</span>}</td>
+              <td className="space-x-3 whitespace-nowrap">
+                {r.status === 'PENDING' && has('pointRequests', 'approve') && <button className="font-bold text-emerald-500" onClick={() => decide(r, 'approve')}>Approve</button>}
+                {r.status === 'PENDING' && has('pointRequests', 'reject') && <button className="font-bold text-red-500" onClick={() => decide(r, 'reject')}>Reject</button>}
+              </td>
+            </tr>
+          ))}
+        </Table>
+        {data && <Pager page={page} total={data.total} pageSize={data.pageSize} onPage={setPage} />}
+      </State>
+    </div>
+  );
+}

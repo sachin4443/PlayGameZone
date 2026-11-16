@@ -298,23 +298,58 @@ export function GamesPage() {
   );
 }
 
-interface RoomRow { id: string; code: string; name: string; mode: string; host: string; visibility: string; isMatchmaking: boolean; status: string; entryPoints: number; maxPlayers: number; players: number; createdAt: string }
+interface RoomRow { id: string; code: string; name: string; mode: string; host: string; visibility: string; isMatchmaking: boolean; status: string; entryPoints: number; maxPlayers: number; players: number; createdAt: string; firstTurnUserId: string | null; firstTurnSetBy: string | null; seats: { userId: string; name: string }[] }
 
 export function RoomsPage() {
+  const { has } = useStaff();
+  const toast = useToast();
   const [filter, setFilter] = useState<'WAITING' | 'IN_GAME' | 'COMPLETED' | 'PUBLIC' | 'PRIVATE'>('WAITING');
   const [page, setPage] = useState(1);
   const params = filter === 'PUBLIC' || filter === 'PRIVATE' ? { visibility: filter } : { status: filter };
   const { data, error, loading, reload } = useAdmin<{ items: RoomRow[]; total: number; pageSize: number }>('/admin/rooms', { page, ...params });
+  const manage = has('rooms', 'manage');
+
+  const act = async (fn: () => Promise<unknown>, done: string) => {
+    try {
+      await fn();
+      toast(done, 'success');
+      void reload();
+    } catch (err) {
+      toast(errorMessage(err), 'error');
+    }
+  };
+  const close = (r: RoomRow) => {
+    const reason = window.prompt(`Close room ${r.code}? Reason (shown to the players):`);
+    if (reason) void act(() => adminApi.post(`/admin/rooms/${r.id}/close`, { reason }), 'Room closed');
+  };
+
   return (
     <div>
-      <Title>Rooms</Title>
+      <Title action={<button className="btn-ghost !py-2" onClick={reload}>Refresh</button>}>Rooms</Title>
+      <p className="mb-4 rounded-xl border border-line bg-surface px-4 py-3 text-sm text-muted">For a waiting private or public room you can choose which player takes the first turn. Players see that choice, and that staff made it, in their lobby before the game starts. Matchmaking and prize-pool tables always draw the first turn at random. Dice are always rolled at random by the server and cannot be set.</p>
       <Tabs value={filter} options={[['WAITING', 'Waiting'], ['IN_GAME', 'Active'], ['COMPLETED', 'Completed'], ['PUBLIC', 'Public'], ['PRIVATE', 'Private']]} onChange={(v) => { setFilter(v); setPage(1); }} />
       <State error={error} loading={loading && !data} reload={reload} empty={data?.items.length === 0}>
-        <Table head={['Created', 'Code', 'Name', 'Mode', 'Host', 'Type', 'Players', 'Entry', 'Status']}>
-          {data?.items.map((r) => (
-            <tr key={r.id}><td className="text-muted">{dateTime(r.createdAt)}</td><td className="font-mono font-bold">{r.code}</td><td>{r.name}</td><td>{r.mode}</td><td>{r.host}</td>
-              <td>{r.isMatchmaking ? 'Matchmaking' : r.visibility.toLowerCase()}</td><td>{r.players}/{r.maxPlayers}</td><td>{pts(r.entryPoints)}</td><td><Badge tone={statusTone(r.status)}>{r.status}</Badge></td></tr>
-          ))}
+        <Table head={['Created', 'Code', 'Name', 'Mode', 'Host', 'Type', 'Players', 'Entry', 'First turn', 'Status', '']}>
+          {data?.items.map((r) => {
+            const editable = manage && r.status === 'WAITING' && !r.isMatchmaking;
+            return (
+              <tr key={r.id}><td className="text-muted">{dateTime(r.createdAt)}</td><td className="font-mono font-bold">{r.code}</td><td>{r.name}</td><td>{r.mode}</td><td>{r.host}</td>
+                <td>{r.isMatchmaking ? 'Matchmaking' : r.visibility.toLowerCase()}</td><td>{r.players}/{r.maxPlayers}</td><td>{pts(r.entryPoints)}</td>
+                <td>
+                  {editable ? (
+                    <select className="input !w-40 !py-1.5" value={r.firstTurnUserId ?? ''} aria-label={`First turn for room ${r.code}`}
+                      onChange={(e) => act(() => adminApi.patch(`/admin/rooms/${r.id}`, { firstTurnUserId: e.target.value || null }), 'First turn updated. The players can see it in their lobby.')}>
+                      <option value="">Random</option>
+                      {r.seats.map((seat) => <option key={seat.userId} value={seat.userId}>{seat.name}</option>)}
+                    </select>
+                  ) : (
+                    <span className="text-muted">{r.firstTurnUserId ? `${r.seats.find((x) => x.userId === r.firstTurnUserId)?.name ?? 'Player'} (${r.firstTurnSetBy === 'ADMIN' ? 'staff' : 'host'})` : 'Random'}</span>
+                  )}
+                </td>
+                <td><Badge tone={statusTone(r.status)}>{r.status}</Badge></td>
+                <td>{manage && r.status === 'WAITING' && <button className="font-bold text-red-500" onClick={() => close(r)}>Close</button>}</td></tr>
+            );
+          })}
         </Table>
         {data && <Pager page={page} total={data.total} pageSize={data.pageSize} onPage={setPage} />}
       </State>

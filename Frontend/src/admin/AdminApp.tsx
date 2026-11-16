@@ -1,19 +1,20 @@
 import { createContext, useCallback, useContext, useEffect, useState, type FormEvent } from 'react';
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom';
+import { ThemeSwitch } from '../components/ThemeSwitch';
 import { Icon, Logo, PageLoader, Spinner } from '../components/ui';
 import { ADMIN_TOKEN_KEY, adminApi, errorMessage } from '../lib/api';
 import type { Me } from '../lib/types';
 import { AuditPage, DashboardPage, GamesPage, ModesPage, RoomsPage, SettingsPage, TournamentsAdminPage, UserDetailPage, UsersPage } from './pages';
-import { AccountRequestsPage, PrizePoolsPage, StaffPage } from './pages2';
+import { AccountRequestsPage, PointRequestsPage, PrizePoolsPage, StaffPage } from './pages2';
 
 export interface StaffMe extends Me { role: string; permissions: Record<string, string[]>; mustChangePassword: boolean; modules: Record<string, string>; actions: string[] }
-interface StaffCtx { staff: StaffMe; has: (module: string, action: string) => boolean; pendingRequests: number; refreshBadges: () => void }
+interface StaffCtx { staff: StaffMe; has: (module: string, action: string) => boolean; pendingRequests: number; pendingPoints: number; refreshBadges: () => void }
 const Ctx = createContext<StaffCtx | null>(null);
 export const useStaff = () => useContext(Ctx)!;
 
 /** [route, icon, label, permission module]. A link shows only with `view` on its module. */
 const NAV = [
-  ['', 'grid', 'Dashboard', 'dashboard'], ['users', 'users', 'Users', 'users'], ['requests', 'bell', 'Account requests', 'accountRequests'],
+  ['', 'grid', 'Dashboard', 'dashboard'], ['users', 'users', 'Users', 'users'], ['points', 'wallet', 'Point requests', 'pointRequests'], ['requests', 'bell', 'Account requests', 'accountRequests'],
   ['games', 'live', 'Games', 'games'], ['rooms', 'key', 'Rooms', 'rooms'], ['pools', 'gift', 'Prize pools', 'prizePools'], ['tournaments', 'trophy', 'Tournaments', 'tournaments'],
   ['modes', 'list', 'Game modes', 'modes'], ['settings', 'settings', 'Configuration', 'settings'], ['audit', 'shield', 'Audit log', 'audit'], ['staff', 'user', 'Staff & permissions', 'staff'],
 ] as const;
@@ -75,6 +76,7 @@ function AdminLogin({ onDone }: { onDone: () => void }) {
     <div className="flex min-h-dvh items-center justify-center p-4">
       <form onSubmit={submit} className="card w-full max-w-sm space-y-4 p-6">
         <div className="flex items-center gap-3"><Logo size={40} /><div><p className="text-[11px] font-bold uppercase tracking-widest text-brand">Staff only</p><h1 className="text-xl font-extrabold">PlayerX Ludo Admin</h1></div></div>
+        <ThemeSwitch />
         <div><label className="label" htmlFor="u">Username</label><input id="u" className="input" autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} /></div>
         <div><label className="label" htmlFor="p">Password</label><input id="p" type="password" className="input" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} /></div>
         {error && <p className="text-sm font-medium text-red-500" role="alert">{error}</p>}
@@ -89,6 +91,7 @@ export default function AdminApp() {
   const [loading, setLoading] = useState(() => !!localStorage.getItem(ADMIN_TOKEN_KEY));
   const [menu, setMenu] = useState(false);
   const [pendingRequests, setPendingRequests] = useState(0);
+  const [pendingPoints, setPendingPoints] = useState(0);
   const [changing, setChanging] = useState(false);
 
   const logout = useCallback(() => {
@@ -108,7 +111,7 @@ export default function AdminApp() {
   }, []);
 
   const refreshBadges = useCallback(() => {
-    adminApi.get<{ accountRequests: number }>('/admin/notifications/summary').then((r) => setPendingRequests(r.data.accountRequests)).catch(() => undefined);
+    adminApi.get<{ accountRequests: number; pointRequests: number }>('/admin/notifications/summary').then((r) => { setPendingRequests(r.data.accountRequests); setPendingPoints(r.data.pointRequests); }).catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -136,7 +139,7 @@ export default function AdminApp() {
   const home = links[0] ? `/admin/${links[0][0]}` : null;
 
   return (
-    <Ctx.Provider value={{ staff, has, pendingRequests, refreshBadges }}>
+    <Ctx.Provider value={{ staff, has, pendingRequests, pendingPoints, refreshBadges }}>
       <div className="flex min-h-dvh">
         <aside className={`${menu ? 'flex' : 'hidden'} fixed inset-y-0 left-0 z-40 w-64 flex-col border-r border-line bg-surface p-4 md:static md:flex`}>
           <div className="mb-6 flex items-center gap-2"><Logo size={32} /><span className="font-extrabold">PlayerX Admin</span></div>
@@ -144,11 +147,13 @@ export default function AdminApp() {
             {links.map(([to, icon, label]) => (
               <NavLink key={to} to={`/admin/${to}`} end={to === ''} onClick={() => setMenu(false)} className={({ isActive }) => `flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-bold ${isActive ? 'bg-brand text-white' : 'text-muted hover:bg-surface-2 hover:text-ink'}`}>
                 <Icon name={icon} size={18} /> <span className="flex-1">{label}</span>
+                {to === 'points' && pendingPoints > 0 && <span className="rounded-full bg-pink px-2 py-0.5 text-[11px] font-extrabold text-white" aria-label={`${pendingPoints} pending`}>{pendingPoints}</span>}
                 {to === 'requests' && pendingRequests > 0 && <span className="rounded-full bg-pink px-2 py-0.5 text-[11px] font-extrabold text-white" aria-label={`${pendingRequests} pending`}>{pendingRequests}</span>}
               </NavLink>
             ))}
           </nav>
           <div className="border-t border-line pt-3 text-xs">
+            <div className="mb-3"><ThemeSwitch /></div>
             <p className="font-bold">{staff.username}</p>
             <p className="text-muted">{staff.role.replace('_', ' ')}</p>
             <div className="mt-2 flex gap-4 font-bold">
@@ -163,6 +168,11 @@ export default function AdminApp() {
             <button onClick={() => setMenu(true)} aria-label="Open menu" className="flex h-9 w-9 items-center justify-center rounded-lg border border-line"><Icon name="list" size={18} /></button>
             <span className="font-extrabold">PlayerX Admin</span>
           </header>
+          {pendingPoints > 0 && has('pointRequests', 'view') && (
+            <NavLink to="/admin/points" className="flex items-center justify-center gap-2 bg-brand px-4 py-2 text-sm font-bold text-white" role="status">
+              <Icon name="bell" size={16} /> {pendingPoints} new point request{pendingPoints === 1 ? '' : 's'} waiting for review
+            </NavLink>
+          )}
           {pendingRequests > 0 && has('accountRequests', 'view') && (
             <NavLink to="/admin/requests" className="flex items-center justify-center gap-2 bg-pink px-4 py-2 text-sm font-bold text-white" role="status">
               <Icon name="bell" size={16} /> {pendingRequests} new account request{pendingRequests === 1 ? '' : 's'} waiting for review
@@ -174,6 +184,7 @@ export default function AdminApp() {
                 <Route index element={has('dashboard', 'view') ? <DashboardPage /> : home && home !== '/admin/' ? <Navigate to={home} replace /> : <NoAccess />} />
                 <Route path="users" element={guard('users', <UsersPage />)} />
                 <Route path="users/:id" element={guard('users', <UserDetailPage />)} />
+                <Route path="points" element={guard('pointRequests', <PointRequestsPage />)} />
                 <Route path="requests" element={guard('accountRequests', <AccountRequestsPage />)} />
                 <Route path="games" element={guard('games', <GamesPage />)} />
                 <Route path="rooms" element={guard('rooms', <RoomsPage />)} />

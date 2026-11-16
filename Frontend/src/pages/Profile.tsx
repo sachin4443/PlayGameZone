@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AccountSecurity } from '../components/AccountSecurity';
+import { InstallRow } from '../components/InstallApp';
+import { ThemeSwitch } from '../components/ThemeSwitch';
 import { Avatar, AVATAR_IDS, Icon, Spinner } from '../components/ui';
 import { api, errorMessage } from '../lib/api';
 import type { Me } from '../lib/types';
@@ -71,13 +73,11 @@ export default function ProfilePage() {
             <span className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow transition-all ${user.soundEnabled ? 'left-6' : 'left-1'}`} />
           </button>
         </div>
+        <InstallRow />
         <div className="p-4">
-          <span className="mb-2 flex items-center gap-3 text-sm font-bold"><Icon name="sun" /> Appearance</span>
-          <div className="grid grid-cols-3 gap-1 rounded-xl bg-surface-2 p-1">
-            {(['light', 'dark', 'auto'] as const).map((t) => (
-              <button key={t} onClick={() => save({ theme: t }, true)} aria-pressed={user.theme === t} className={`rounded-lg py-2 text-xs font-bold capitalize ${user.theme === t ? 'bg-surface shadow' : 'text-muted'}`}>{t}</button>
-            ))}
-          </div>
+          <span className="mb-2 flex items-center gap-3 text-sm font-bold"><Icon name="sun" /> Theme</span>
+          <ThemeSwitch onChange={(t) => void save({ theme: t }, true)} />
+          <p className="mt-2 text-xs text-muted">Saved to your account, so it is applied whenever you sign in.</p>
         </div>
       </section>
 

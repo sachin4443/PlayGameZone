@@ -12,7 +12,7 @@ transfer anywhere in the system.
 | Frontend | React 18, Vite, TypeScript, Tailwind CSS 4, React Router, Axios, Socket.IO client |
 | Backend | Node.js, Express, TypeScript, Socket.IO, Zod, JWT |
 | Database | PostgreSQL, Prisma ORM + migrations |
-| Tests | Vitest, Supertest, socket.io-client (105 tests) |
+| Tests | Vitest, Supertest, socket.io-client (117 tests) |
 
 ```
 Backend/
@@ -188,6 +188,46 @@ kinds and are not interchangeable.
 (`ROOT_OWNER_USERNAME`, `ROOT_OWNER_PASSWORD`), run `npm run db:seed`, sign in at `/admin`, choose a
 new password when asked, then delete `ROOT_OWNER_PASSWORD` from `.env`. The password is never in the
 source code or the repository.
+
+## Point requests (virtual points only)
+
+Players can ask staff to **add** points or to **withdraw** points from their wallet (Wallet page).
+
+- Add: nothing changes until staff approve; approval credits the points exactly once.
+- Withdraw: the points are reserved when the request is sent (they cannot be spent or requested
+  again), removed on approval and returned on rejection.
+- One open request of each kind per player; a per-request maximum is configurable
+  (`pointRequestMax`), and the feature can be switched off (`pointRequestsEnabled`).
+- Every step writes a wallet ledger row and an audit log entry; the player is notified.
+- **No payment is involved.** The request has an amount and an optional note – there are no payment
+  details, references or payout fields anywhere, and the app tells players that points have no cash
+  value and cannot be exchanged for money.
+
+## Room settings and first turn
+
+- When a room has no setting, the first turn is drawn at random as the game starts.
+- In a private/public room the host can name the player who starts. Staff with the Rooms "manage"
+  permission can set or clear it from the admin panel, and can close a waiting room.
+- The setting, and whether the host or staff chose it, is shown to every player in the lobby before
+  the game starts. Staff changes are audit logged, and a host cannot override a staff choice.
+- Matchmaking and prize-pool tables always draw the first turn at random.
+- **Dice cannot be configured by anyone.** Every roll in every game comes from the server's random
+  source; there is no scripted or controlled dice mode.
+
+## Installable app (PWA) and themes
+
+- The site has a web app manifest, icons (including a maskable one) and a service worker, so mobile
+  browsers can install it to the home screen and open it full-screen without the address bar.
+- An "Install the app" banner appears on the home screen on mobile, and Profile has an Install row.
+  Android Chrome shows the native install prompt; on iPhone the app shows the Share → Add to Home
+  Screen steps (Apple does not allow a one-tap prompt).
+- The service worker caches only the app shell and hashed assets. It never caches API or socket
+  traffic; offline, the app shows a "you're offline" screen. **Installation requires HTTPS.**
+- After deploying a new build, bump `VERSION` in `Frontend/public/sw.js` if you changed files in
+  `public/`; hashed assets and page loads update on their own.
+- Theme: Light, Dark or System default, on the login page, in Profile and in the admin panel. A
+  signed-in player's choice is saved to their account and re-applied on every sign-in; "System
+  default" follows the device live.
 
 ## Ways to play
 
