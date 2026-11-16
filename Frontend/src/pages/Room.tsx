@@ -92,8 +92,8 @@ export default function RoomPage() {
 
       <section className="card overflow-hidden">
         <div className="bg-gradient-to-br from-brand to-pink p-5 text-white">
-          <p className="text-[11px] font-bold uppercase tracking-wider text-white/75">{room.isMatchmaking ? 'Public matchmaking' : room.visibility === 'PRIVATE' ? 'Private room' : 'Public room'} · {room.mode.name}</p>
-          <h1 className="mt-1 text-xl font-extrabold">{room.isMatchmaking ? 'Finding opponents…' : room.name}</h1>
+          <p className="text-[11px] font-bold uppercase tracking-wider text-white/75">{room.pool ? 'Prize pool' : room.isMatchmaking ? 'Public matchmaking' : room.visibility === 'PRIVATE' ? 'Private room' : 'Public room'} · {room.mode.name}</p>
+          <h1 className="mt-1 text-xl font-extrabold">{room.pool ? room.pool.name : room.isMatchmaking ? 'Finding opponents…' : room.name}</h1>
           {!room.isMatchmaking && (
             <button onClick={share} className="mt-4 flex w-full items-center justify-between rounded-2xl bg-black/20 px-4 py-3 text-left">
               <span><span className="block text-[10px] font-bold uppercase tracking-wider text-white/70">Room code</span><span className="text-3xl font-extrabold tracking-[0.3em]">{room.code}</span></span>
@@ -103,7 +103,7 @@ export default function RoomPage() {
         </div>
         <div className="grid grid-cols-3 divide-x divide-line text-center text-xs">
           <div className="p-3"><span className="block text-muted">Entry</span><PointsPill value={room.entryPoints} className="text-sm" /></div>
-          <div className="p-3"><span className="block text-muted">Prize pool</span><PointsPill value={room.entryPoints * Math.max(room.players.length, 2)} className="text-sm" /></div>
+          <div className="p-3"><span className="block text-muted">Prize pool</span><PointsPill value={room.pool ? room.prizePool : room.entryPoints * Math.max(room.players.length, 2)} className="text-sm" /></div>
           <div className="p-3"><span className="block text-muted">{room.isMatchmaking ? 'Time left' : 'Closes in'}</span><b className={`text-sm ${secondsLeft !== null && secondsLeft < 30 ? 'text-red-500' : ''}`}>{secondsLeft !== null ? clock(secondsLeft) : '—'}</b></div>
         </div>
       </section>

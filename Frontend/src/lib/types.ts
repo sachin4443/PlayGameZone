@@ -28,7 +28,11 @@ export interface Rules {
   scoreHome: number;
 }
 
+export interface SnakesRules { exactFinish: boolean; extraTurnOnSix: boolean; maxConsecutiveSixes: number }
+
 export interface GameMode {
+  /** Which board game this mode belongs to. */
+  game: 'LUDO' | 'SNAKES';
   key: string;
   name: string;
   tagline: string;
@@ -36,7 +40,7 @@ export interface GameMode {
   minEntry: number;
   maxEntry: number;
   allowedPlayers: number[];
-  rules: Rules;
+  rules: Rules & SnakesRules;
 }
 
 export interface RoomView {
@@ -48,6 +52,7 @@ export interface RoomView {
   maxPlayers: number;
   entryPoints: number;
   prizePool: number;
+  pool: { id: string; name: string } | null;
   visibility: 'PUBLIC' | 'PRIVATE';
   isMatchmaking: boolean;
   status: 'WAITING' | 'IN_GAME' | 'COMPLETED' | 'CANCELLED';
@@ -69,6 +74,7 @@ export interface PlayerState {
   active: boolean;
   missed: number;
   connected: boolean;
+  bot?: boolean;
 }
 
 export interface LegalMove { token: number; die?: number; from: number; to: number }
@@ -76,6 +82,7 @@ export interface LegalMove { token: number; die?: number; from: number; to: numb
 export interface GameResult { reason: 'HOME' | 'SCORE' | 'TIME' | 'TURNS' | 'FORFEIT'; winners: number[]; ranking: number[] }
 
 export interface GameState {
+  kind?: 'LUDO';
   rules: Rules;
   players: PlayerState[];
   turn: number;
@@ -91,7 +98,27 @@ export interface GameState {
   result: GameResult | null;
 }
 
+export interface SnakesPlayer extends Omit<PlayerState, 'tokens' | 'kills'> { pos: number }
+
+export interface SnakesState {
+  kind: 'SNAKES';
+  rules: SnakesRules;
+  board: { ladders: [number, number][]; snakes: [number, number][] };
+  players: SnakesPlayer[];
+  turn: number;
+  phase: 'ROLL' | 'DONE';
+  dice: number | null;
+  startedAt: number;
+  endsAt: number | null;
+  turnDeadline: number | null;
+  result: GameResult | null;
+}
+
+export type AnyState = GameState | SnakesState;
+
 export type GameEvent =
+  | { type: 'step'; seat: number; from: number; to: number }
+  | { type: 'ladder' | 'snake'; seat: number; from: number; to: number }
   | { type: 'roll'; seat: number; dice: number; steps: number; power: boolean }
   | { type: 'pool'; pool: number[] }
   | { type: 'no-move'; seat: number }

@@ -9,13 +9,13 @@ import { useStaff } from './AdminApp';
 
 // ── shared bits ───────────────────────────────────────────────────
 
-const useAdmin = <T,>(url: string | null, params?: Record<string, unknown>) => useFetch<T>(url, params, adminApi);
+export const useAdmin = <T,>(url: string | null, params?: Record<string, unknown>) => useFetch<T>(url, params, adminApi);
 
-function Title({ children, action }: { children: ReactNode; action?: ReactNode }) {
+export function Title({ children, action }: { children: ReactNode; action?: ReactNode }) {
   return <div className="mb-5 flex flex-wrap items-center justify-between gap-3"><h1 className="text-2xl font-extrabold">{children}</h1>{action}</div>;
 }
 
-function Table({ head, children }: { head: string[]; children: ReactNode }) {
+export function Table({ head, children }: { head: string[]; children: ReactNode }) {
   return (
     <div className="card overflow-x-auto">
       <table className="w-full min-w-[640px] text-left text-sm">
@@ -26,7 +26,7 @@ function Table({ head, children }: { head: string[]; children: ReactNode }) {
   );
 }
 
-function Pager({ page, total, pageSize, onPage }: { page: number; total: number; pageSize: number; onPage: (p: number) => void }) {
+export function Pager({ page, total, pageSize, onPage }: { page: number; total: number; pageSize: number; onPage: (p: number) => void }) {
   const pages = Math.max(1, Math.ceil(total / pageSize));
   return (
     <div className="mt-3 flex items-center justify-between text-sm text-muted">
@@ -40,7 +40,7 @@ function Pager({ page, total, pageSize, onPage }: { page: number; total: number;
   );
 }
 
-function Tabs<T extends string>({ value, options, onChange }: { value: T; options: [T, string][]; onChange: (v: T) => void }) {
+export function Tabs<T extends string>({ value, options, onChange }: { value: T; options: [T, string][]; onChange: (v: T) => void }) {
   return (
     <div className="mb-4 flex flex-wrap gap-1 rounded-xl bg-surface-2 p-1" role="tablist">
       {options.map(([v, label]) => <button key={v} role="tab" aria-selected={value === v} onClick={() => onChange(v)} className={`rounded-lg px-3 py-1.5 text-xs font-bold ${value === v ? 'bg-surface shadow' : 'text-muted'}`}>{label}</button>)}
@@ -48,16 +48,41 @@ function Tabs<T extends string>({ value, options, onChange }: { value: T; option
   );
 }
 
-const Badge = ({ children, tone = 'muted' }: { children: ReactNode; tone?: 'ok' | 'bad' | 'warn' | 'muted' }) => (
+export const Badge = ({ children, tone = 'muted' }: { children: ReactNode; tone?: 'ok' | 'bad' | 'warn' | 'muted' }) => (
   <span className={`chip ${{ ok: 'bg-emerald-500/15 text-emerald-500', bad: 'bg-red-500/15 text-red-500', warn: 'bg-accent/20 text-accent', muted: 'bg-surface-2 text-muted' }[tone]}`}>{children}</span>
 );
-const statusTone = (s: string) => (['ACTIVE', 'FINISHED', 'COMPLETED', 'RUNNING', 'IN_GAME'].includes(s) ? 'ok' : ['CANCELLED', 'BLOCKED'].includes(s) ? 'bad' : 'warn') as 'ok' | 'bad' | 'warn';
+export const statusTone = (s: string) => (['ACTIVE', 'FINISHED', 'COMPLETED', 'RUNNING', 'IN_GAME'].includes(s) ? 'ok' : ['CANCELLED', 'BLOCKED'].includes(s) ? 'bad' : 'warn') as 'ok' | 'bad' | 'warn';
 
-function State({ error, loading, reload, empty, children }: { error: string; loading: boolean; reload: () => void; empty?: boolean; children: ReactNode }) {
+export function State({ error, loading, reload, empty, children }: { error: string; loading: boolean; reload: () => void; empty?: boolean; children: ReactNode }) {
   if (error) return <ErrorNote message={error} onRetry={reload} />;
   if (loading) return <PageLoader />;
   if (empty) return <Empty title="Nothing here yet" />;
   return <>{children}</>;
+}
+
+/** Downloads a CSV export; shown only to staff with the download permission for that module. */
+export function DownloadButton({ name, module, label = 'Download CSV' }: { name: string; module: string; label?: string }) {
+  const { has } = useStaff();
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  if (!has(module, 'download')) return null;
+  const run = async () => {
+    setBusy(true);
+    try {
+      const res = await adminApi.get(`/admin/export/${name}`, { responseType: 'blob' });
+      const url = URL.createObjectURL(res.data as Blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${name}-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toast(errorMessage(err), 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return <button className="btn-ghost !py-2" onClick={run} disabled={busy}>{busy ? <Spinner /> : label}</button>;
 }
 
 // ── dashboard ─────────────────────────────────────────────────────
@@ -95,7 +120,7 @@ export function UsersPage() {
   const { data, error, loading, reload } = useAdmin<{ items: UserRow[]; total: number; pageSize: number }>('/admin/users', { page, ...(query ? { search: query } : {}), ...(status ? { status } : {}) });
   return (
     <div>
-      <Title>Users</Title>
+      <Title action={<div className="flex gap-2"><DownloadButton name="users" module="users" /><DownloadButton name="transactions" module="wallet" label="Wallet ledger CSV" /></div>}>Users</Title>
       <form className="mb-4 flex gap-2" onSubmit={(e) => { e.preventDefault(); setQuery(search.trim()); setPage(1); }}>
         <input className="input" placeholder="Search by mobile, name or referral code" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search users" />
         <button className="btn-primary">Search</button>
@@ -126,7 +151,7 @@ interface Tx { id: string; type: string; direction: string; amount: number; bala
 
 export function UserDetailPage() {
   const { id } = useParams();
-  const { can } = useStaff();
+  const { has } = useStaff();
   const toast = useToast();
   const user = useAdmin<UserDetail>(`/admin/users/${id}`);
   const [page, setPage] = useState(1);
@@ -154,6 +179,17 @@ export function UserDetailPage() {
     }
   };
 
+  const setPin = async () => {
+    const pin = window.prompt('New PIN for this player (4 to 6 digits). Tell the player and ask them to change it.');
+    if (!pin) return;
+    try {
+      await adminApi.post(`/admin/users/${id}/set-pin`, { pin });
+      toast('PIN updated. The player has been signed out.', 'success');
+    } catch (err) {
+      toast(errorMessage(err), 'error');
+    }
+  };
+
   const setStatus = async (status: 'ACTIVE' | 'BLOCKED') => {
     const why = status === 'BLOCKED' ? window.prompt('Reason for blocking this player?') : '';
     if (why === null) return;
@@ -172,11 +208,12 @@ export function UserDetailPage() {
       <State error={user.error} loading={user.loading && !u} reload={user.reload}>
         {u && (
           <>
-            <Title action={can('admin') && (
+            <Title action={(
               <div className="flex flex-wrap gap-2">
-                <button className="btn-primary !py-2" onClick={() => { setAdjust('CREDIT'); setAmount(''); setReason(''); setRequestId(crypto.randomUUID()); }}>Credit points</button>
-                <button className="btn-ghost !py-2" onClick={() => { setAdjust('DEBIT'); setAmount(''); setReason(''); setRequestId(crypto.randomUUID()); }}>Debit points</button>
-                {u.status === 'ACTIVE' ? <button className="btn-danger !py-2" onClick={() => setStatus('BLOCKED')}>Block</button> : <button className="btn-ghost !py-2" onClick={() => setStatus('ACTIVE')}>Unblock</button>}
+                {has('wallet', 'update') && <><button className="btn-primary !py-2" onClick={() => { setAdjust('CREDIT'); setAmount(''); setReason(''); setRequestId(crypto.randomUUID()); }}>Credit points</button>
+                <button className="btn-ghost !py-2" onClick={() => { setAdjust('DEBIT'); setAmount(''); setReason(''); setRequestId(crypto.randomUUID()); }}>Debit points</button></>}
+                {has('users', 'manage') && <button className="btn-ghost !py-2" onClick={setPin}>Set new PIN</button>}
+                {has('users', 'update') && (u.status === 'ACTIVE' ? <button className="btn-danger !py-2" onClick={() => setStatus('BLOCKED')}>Block</button> : <button className="btn-ghost !py-2" onClick={() => setStatus('ACTIVE')}>Unblock</button>)}
               </div>
             )}>{u.name} <Badge tone={statusTone(u.status)}>{u.status}</Badge></Title>
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -221,7 +258,7 @@ export function UserDetailPage() {
 interface GameRow { id: string; status: string; mode: string; roomCode: string | null; isTournament: boolean; entryPoints: number; pool: number; commissionAmount: number; startedAt: string; cancelReason: string | null; players: { name: string; mobile: string; color: string; status: string }[] }
 
 export function GamesPage() {
-  const { can } = useStaff();
+  const { has } = useStaff();
   const toast = useToast();
   const [status, setStatus] = useState<'' | 'ACTIVE' | 'FINISHED' | 'CANCELLED'>('ACTIVE');
   const [page, setPage] = useState(1);
@@ -241,7 +278,7 @@ export function GamesPage() {
 
   return (
     <div>
-      <Title action={<button className="btn-ghost !py-2" onClick={reload}>Refresh</button>}>Games</Title>
+      <Title action={<div className="flex gap-2"><DownloadButton name="games" module="games" /><button className="btn-ghost !py-2" onClick={reload}>Refresh</button></div>}>Games</Title>
       <Tabs value={status} options={[['ACTIVE', 'Live'], ['FINISHED', 'Completed'], ['CANCELLED', 'Cancelled'], ['', 'All']]} onChange={(v) => { setStatus(v); setPage(1); }} />
       <State error={error} loading={loading && !data} reload={reload} empty={data?.items.length === 0}>
         <Table head={['Started', 'Mode', 'Room', 'Players', 'Entry', 'Pool', 'Status', '']}>
@@ -251,7 +288,7 @@ export function GamesPage() {
               <td>{g.players.map((p) => <span key={p.mobile} className="mr-2 inline-block">{p.name} <span className="text-muted">({p.color}{p.status === 'LEFT' ? ', left' : ''})</span></span>)}</td>
               <td>{pts(g.entryPoints)}</td><td>{pts(g.pool)}{g.commissionAmount > 0 && <span className="text-muted"> (−{g.commissionAmount})</span>}</td>
               <td><Badge tone={statusTone(g.status)}>{g.status}</Badge>{g.cancelReason && <span className="block text-xs text-muted">{g.cancelReason}</span>}</td>
-              <td>{g.status === 'ACTIVE' && can('admin') && !g.isTournament && <button className="font-bold text-red-500" onClick={() => cancel(g)}>Cancel & refund</button>}</td>
+              <td>{g.status === 'ACTIVE' && has('games', 'manage') && !g.isTournament && <button className="font-bold text-red-500" onClick={() => cancel(g)}>Cancel & refund</button>}</td>
             </tr>
           ))}
         </Table>
@@ -290,7 +327,7 @@ export function RoomsPage() {
 interface TRow { id: string; name: string; mode: { key: string; name: string }; entryPoints: number; capacity: number; registered: number; prizePool: number; status: string; startsAt: string }
 
 export function TournamentsAdminPage() {
-  const { can } = useStaff();
+  const { has } = useStaff();
   const toast = useToast();
   const { data, error, loading, reload } = useAdmin<{ items: TRow[] }>('/admin/tournaments');
   const modes = useAdmin<{ items: { key: string; name: string; isActive: boolean; allowedPlayers: number[] }[] }>('/admin/modes');
@@ -327,13 +364,13 @@ export function TournamentsAdminPage() {
 
   return (
     <div>
-      <Title action={can('admin') && <button className="btn-primary !py-2" onClick={() => setOpen(true)}>New tournament</button>}>Tournaments</Title>
+      <Title action={has('tournaments', 'create') && <button className="btn-primary !py-2" onClick={() => setOpen(true)}>New tournament</button>}>Tournaments</Title>
       <State error={error} loading={loading && !data} reload={reload} empty={data?.items.length === 0}>
         <Table head={['Name', 'Mode', 'Starts', 'Players', 'Entry', 'Prize pool', 'Status', '']}>
           {data?.items.map((t) => (
             <tr key={t.id}><td className="font-bold">{t.name}</td><td>{t.mode.name}</td><td className="text-muted">{dateTime(t.startsAt)}</td><td>{t.registered}/{t.capacity}</td><td>{pts(t.entryPoints)}</td><td>{pts(t.prizePool)}</td>
               <td><Badge tone={statusTone(t.status)}>{t.status}</Badge></td>
-              <td className="space-x-3 whitespace-nowrap">{t.status === 'UPCOMING' && can('admin') && <><button className="font-bold text-brand" onClick={() => act(t, 'start')}>Start now</button><button className="font-bold text-red-500" onClick={() => act(t, 'cancel')}>Cancel</button></>}</td></tr>
+              <td className="space-x-3 whitespace-nowrap">{t.status === 'UPCOMING' && has('tournaments', 'manage') && <><button className="font-bold text-brand" onClick={() => act(t, 'start')}>Start now</button><button className="font-bold text-red-500" onClick={() => act(t, 'cancel')}>Cancel</button></>}</td></tr>
           ))}
         </Table>
       </State>
@@ -362,12 +399,12 @@ export function TournamentsAdminPage() {
 interface Setting { key: string; value: unknown; default: unknown; description: string }
 
 export function SettingsPage() {
-  const { can } = useStaff();
+  const { has } = useStaff();
   const toast = useToast();
   const { data, error, loading, reload } = useAdmin<{ items: Setting[] }>('/admin/settings');
   const [draft, setDraft] = useState<Record<string, string | boolean>>({});
   const [busy, setBusy] = useState(false);
-  const editable = can('super');
+  const editable = has('settings', 'manage');
 
   const save = async () => {
     const body: Record<string, unknown> = {};
@@ -391,7 +428,7 @@ export function SettingsPage() {
   return (
     <div>
       <Title action={editable && <button className="btn-primary !py-2" disabled={busy || Object.keys(draft).length === 0} onClick={save}>{busy ? <Spinner /> : 'Save changes'}</button>}>Configuration</Title>
-      {!editable && <p className="mb-3 text-sm text-muted">Only a super admin can change configuration.</p>}
+      {!editable && <p className="mb-3 text-sm text-muted">Your account can view configuration but not change it.</p>}
       <State error={error} loading={loading && !data} reload={reload}>
         <div className="card divide-y divide-line">
           {data?.items.map((s) => {
@@ -414,13 +451,13 @@ export function SettingsPage() {
 interface Mode { id: number; key: string; name: string; tagline: string; isActive: boolean; minEntry: number; maxEntry: number; allowedPlayers: number[]; rules: Record<string, unknown>; effectiveRules: Record<string, unknown> }
 
 export function ModesPage() {
-  const { can } = useStaff();
+  const { has } = useStaff();
   const toast = useToast();
   const { data, error, loading, reload } = useAdmin<{ items: Mode[] }>('/admin/modes');
   const [edit, setEdit] = useState<Mode | null>(null);
   const [form, setForm] = useState({ name: '', tagline: '', minEntry: '', maxEntry: '', rules: '' });
   const [busy, setBusy] = useState(false);
-  const editable = can('super');
+  const editable = has('modes', 'update');
 
   const patch = async (id: number, body: object) => {
     setBusy(true);
@@ -497,7 +534,7 @@ export function AuditPage() {
   const { data, error, loading, reload } = useAdmin<{ items: Log[]; total: number; pageSize: number }>('/admin/audit-logs', { page });
   return (
     <div>
-      <Title>Audit log</Title>
+      <Title action={<DownloadButton name="audit" module="audit" />}>Audit log</Title>
       <State error={error} loading={loading && !data} reload={reload} empty={data?.items.length === 0}>
         <Table head={['When', 'Staff', 'Action', 'Target', 'Details', 'IP']}>
           {data?.items.map((l) => (
@@ -511,40 +548,3 @@ export function AuditPage() {
   );
 }
 
-export function StaffPage() {
-  const toast = useToast();
-  const { data, error, loading, reload } = useAdmin<{ items: { id: string; username: string; status: string; roles: string[]; lastLoginAt: string | null }[] }>('/admin/staff');
-  const [form, setForm] = useState({ username: '', password: '', role: 'SUPPORT' });
-  const [busy, setBusy] = useState(false);
-  const create = async (e: FormEvent) => {
-    e.preventDefault();
-    setBusy(true);
-    try {
-      await adminApi.post('/admin/staff', form);
-      toast('Staff account created', 'success');
-      setForm({ username: '', password: '', role: 'SUPPORT' });
-      void reload();
-    } catch (err) {
-      toast(errorMessage(err), 'error');
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <div>
-      <Title>Staff</Title>
-      <State error={error} loading={loading && !data} reload={reload}>
-        <Table head={['Username', 'Role', 'Status', 'Last login']}>
-          {data?.items.map((s) => <tr key={s.id}><td className="font-bold">{s.username}</td><td>{s.roles.join(', ')}</td><td><Badge tone={statusTone(s.status)}>{s.status}</Badge></td><td className="text-muted">{s.lastLoginAt ? dateTime(s.lastLoginAt) : 'never'}</td></tr>)}
-        </Table>
-      </State>
-      <h2 className="mb-2 mt-6 text-lg font-extrabold">Add staff account</h2>
-      <form onSubmit={create} className="card grid gap-3 p-4 sm:grid-cols-4">
-        <input className="input" placeholder="Username" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} aria-label="Username" autoComplete="off" />
-        <input className="input" type="password" placeholder="Password (10+ characters)" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} aria-label="Password" autoComplete="new-password" />
-        <select className="input" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} aria-label="Role"><option value="SUPPORT">Support (read only)</option><option value="ADMIN">Admin</option><option value="SUPER_ADMIN">Super admin</option></select>
-        <button className="btn-primary" disabled={busy || form.username.length < 3 || form.password.length < 10}>{busy ? <Spinner /> : 'Create'}</button>
-      </form>
-    </div>
-  );
-}

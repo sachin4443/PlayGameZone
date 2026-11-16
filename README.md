@@ -1,7 +1,7 @@
 # PlayerX Ludo
 
 Real-time multiplayer Ludo platform: private rooms with room codes, public matchmaking, five
-playable game modes, knockout tournaments, leaderboards, referrals, a points wallet with a full
+playable Ludo modes plus Snake & Ladder, prize-pool tables, practice against the computer, knockout tournaments, leaderboards, referrals, a points wallet with a full
 ledger, and a staff admin panel.
 
 **Points are virtual.** There is no deposit, withdrawal, cash redemption or player-to-player
@@ -12,7 +12,7 @@ transfer anywhere in the system.
 | Frontend | React 18, Vite, TypeScript, Tailwind CSS 4, React Router, Axios, Socket.IO client |
 | Backend | Node.js, Express, TypeScript, Socket.IO, Zod, JWT |
 | Database | PostgreSQL, Prisma ORM + migrations |
-| Tests | Vitest, Supertest, socket.io-client (79 tests) |
+| Tests | Vitest, Supertest, socket.io-client (105 tests) |
 
 ```
 Backend/
@@ -143,28 +143,61 @@ origin in the backend's `CORS_ORIGINS`.
 
 Production checklist:
 
-- `AUTH_PROVIDER=sms` with a real SMS gateway (see below). The server refuses to start in
-  production with the development login unless `ALLOW_DEV_AUTH_IN_PRODUCTION=true`.
 - A strong `JWT_SECRET`, HTTPS, and `CORS_ORIGINS` limited to your domain.
 - Run a single backend process (see "Scaling").
 
 ## Authentication
 
-Player sign-in is two steps and is built so SMS can be added without touching the rest:
+**Players** register with a mobile number and a 4–6 digit PIN (entered twice, plus a CAPTCHA), then
+sign in with mobile + PIN.
 
-1. `POST /api/auth/request-otp` with mobile number + CAPTCHA answer → a challenge id.
-2. `POST /api/auth/verify-otp` with challenge id + 6-digit code → JWT. The account, profile, wallet
-   and welcome bonus are created on the first successful sign-in.
+- One mobile number = one account (unique in the database; concurrent registrations cannot both win).
+- The PIN is stored only as a bcrypt hash. Easily guessed PINs (1234, 0000 …) are refused.
+- Five wrong PINs lock the account for 15 minutes; auth endpoints are also rate limited per IP.
+- A wrong PIN and an unknown number get the same answer.
+- Changing a mobile number or deleting an account is a request that staff approve or reject
+  (Profile → Account & security). A forgotten PIN is reset by staff from the user's page.
+- **Accounts created before PIN login existed** have no PIN: the owner sets one by using
+  "Create account" with the same number, once.
+- **Limitation:** without SMS there is no proof that someone owns the number they register.
+  `Backend/src/modules/auth/otp.ts` is the ready integration point: verify the number there before
+  `registerWithPin` once an SMS gateway is available.
 
-How the code reaches the user is decided by an `OtpProvider` (`Backend/src/modules/auth/otp.ts`):
+**Staff** sign in at `/admin` with username and password. Player and staff tokens are different
+kinds and are not interchangeable.
 
-- `AUTH_PROVIDER=dev` (**temporary, development only**): no SMS is sent; the code is returned to the
-  client and shown on screen. The CAPTCHA only slows bots down here – it does **not** prove that
-  someone owns a phone number, so anyone can sign in as any number in this mode.
-- `AUTH_PROVIDER=sms`: implement `SmsOtpProvider.send()` with your gateway. Nothing else changes.
+## Staff roles and permissions
 
-Staff sign in separately with username and password (bcrypt) at `/admin`. Player and staff tokens
-are different kinds and are not interchangeable.
+| Role | Access |
+|---|---|
+| Root owner | Everything, always. Cannot be edited, disabled, deleted or have its password reset by anyone else through the API. There is one, created by the seed. |
+| Super admin | Everything, except managing other super admins or the root owner. |
+| Admin / Staff | Exactly the menus and actions granted to that account. |
+
+- Each admin API route requires an action (`view`, `read`, `create`, `update`, `delete`, `download`,
+  `approve`, `reject`, `manage`) on a module (Dashboard, Users, Wallet adjustments, Account requests,
+  Games, Rooms, Prize pools, Tournaments, Game modes, Configuration, Audit log, Staff & permissions).
+  The menu is built from the same data, so a hidden menu is also blocked by direct URL and by API.
+- Only the root owner or a super admin can assign permissions, and nobody can change their own
+  account, so staff cannot raise their own access.
+- New and reset staff passwords are temporary: the account can do nothing until it sets its own.
+- Every change, approval, export and permission edit is written to the audit log, viewable per
+  staff member (Staff → Activity).
+
+**Creating the root owner.** Put the username and an initial password in `Backend/.env`
+(`ROOT_OWNER_USERNAME`, `ROOT_OWNER_PASSWORD`), run `npm run db:seed`, sign in at `/admin`, choose a
+new password when asked, then delete `ROOT_OWNER_PASSWORD` from `.env`. The password is never in the
+source code or the repository.
+
+## Ways to play
+
+- **Private room** – create a room, share the code, start when everyone is ready.
+- **Quick match** – public matchmaking by game, table size and entry.
+- **Prize pools** – standing tables set up by staff with a fixed entry and a fixed prize. Tap to take
+  a seat; the match starts when the table fills.
+- **Vs computer** – free practice against 1–3 computer players, for Ludo modes and Snake & Ladder.
+  No points move, and practice games do not count for the leaderboard, statistics or referrals.
+  Computer players only ever appear in practice games, and are labelled.
 
 ## Points and wallet rules
 
@@ -194,6 +227,7 @@ Every mode is a rules configuration run by the same server engine
 | Mania | 25 rolls each, star cells and blocks give no protection, every 5th roll moves double. Highest score wins. |
 | Pick Your Dice | Three shared dice; pick one, move, it is re-rolled for the next player. 30 picks each. Highest score wins. |
 | Kill to Enter | Classic, but your home column is locked until you capture a token. |
+| Snake & Ladder | Separate board game (2–4 players). Race to 100; ladders up, snakes down, six rolls again, exact roll to finish. |
 
 The server rolls the dice (`crypto.randomInt`), validates every move, runs turn and game clocks and
 decides the winner. Clients only send "roll" and "move token N".
@@ -216,11 +250,14 @@ decides the winner. Clients only send "roll" and "move token N".
   discourage farming with throwaway accounts.
 - **Leaving a game on purpose forfeits it.** Losing connection does not: the server plays the turns
   and the player can rejoin until the reconnect window (default 60 s) runs out.
+- **Prize pools** pay their advertised prize; the rest of the entries stays with the platform. The
+  prize can never exceed the total entries.
+- **Deleting an account** closes it, frees the mobile number and keeps game and ledger history.
 - **Logout** discards the JWT on the client; tokens are stateless and expire after `JWT_EXPIRES_IN`.
 
 ## Scaling
 
-Live game state, CAPTCHAs and OTP challenges are held in the memory of one backend process (games
+Live game state and CAPTCHAs are held in the memory of one backend process (games
 are also persisted after every move and resume after a restart). To run several instances, add the
 Socket.IO Redis adapter with sticky sessions and move those stores to Redis.
 

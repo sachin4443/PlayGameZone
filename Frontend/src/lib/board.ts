@@ -45,7 +45,7 @@ export const HOME_COLUMN: Record<Color, RC[]> = {
 /** Top-left corner (col, row) of each colour's 6×6 yard. */
 export const YARD_ORIGIN: Record<Color, [number, number]> = { red: [0, 0], green: [9, 0], yellow: [9, 9], blue: [0, 9] };
 const YARD_SPOTS: [number, number][] = [[1.9, 1.9], [4.1, 1.9], [1.9, 4.1], [4.1, 4.1]];
-const HOME_SPOT: Record<Color, [number, number]> = { red: [6.55, 7.5], green: [7.5, 6.55], yellow: [8.45, 7.5], blue: [7.5, 8.45] };
+const HOME_SPOT: Record<Color, [number, number]> = { red: [6.3, 7.5], green: [7.5, 6.3], yellow: [8.7, 7.5], blue: [7.5, 8.7] };
 
 /** Centre point (x, y) in grid units of a token. */
 export function tokenPoint(color: Color, steps: number, tokenIndex: number): [number, number] {

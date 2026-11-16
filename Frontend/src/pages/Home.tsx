@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { ModeArt } from '../components/ModeArt';
 import { PlaySheet } from '../components/PlaySheet';
+import { PoolCard, type Pool } from '../components/PoolCard';
 import { Avatar, Empty, ErrorNote, Icon, PageLoader, PointsPill, SectionTitle, Sheet, Spinner } from '../components/ui';
 import { api, errorMessage } from '../lib/api';
 import { countdown, pts, timeAgo } from '../lib/format';
@@ -14,8 +15,9 @@ interface HomeData {
   modes: GameMode[];
   active: { room: { code: string } | null; gameIds: string[] };
   rooms: RoomView[];
+  pools: Pool[];
   tournaments: { id: string; name: string; entryPoints: number; prizePool: number; registered: number; capacity: number; startsAt: string; status: string; mode: { name: string } }[];
-  history: { gameId: string; mode: { name: string }; isWinner: boolean; pointsWon: number; entryPaid: number; playedAt: string }[];
+  history: { gameId: string; mode: { name: string }; isPractice: boolean; isWinner: boolean; pointsWon: number; entryPaid: number; playedAt: string }[];
   leaders: { rank: number; userId: string; name: string; avatar: string; wins: number; points: number }[];
   stats: { matches: number; wins: number; winPct: number };
 }
@@ -27,8 +29,8 @@ export default function HomePage() {
   const toast = useToast();
   const [data, setData] = useState<HomeData | null>(null);
   const [error, setError] = useState('');
-  const [sheet, setSheet] = useState<{ mode: GameMode; intent: 'quick' | 'room' } | null>(null);
-  const [picker, setPicker] = useState<'quick' | 'room' | null>(null);
+  const [sheet, setSheet] = useState<{ mode: GameMode; intent: 'quick' | 'room' | 'practice' } | null>(null);
+  const [picker, setPicker] = useState<'quick' | 'room' | 'practice' | null>(null);
   const [joinOpen, setJoinOpen] = useState(false);
   const [code, setCode] = useState('');
   const [joining, setJoining] = useState(false);
@@ -37,12 +39,12 @@ export default function HomePage() {
   const load = useCallback(async () => {
     setError('');
     try {
-      const [modes, active, rooms, tournaments, history, leaders, stats] = await Promise.all([
+      const [modes, active, rooms, tournaments, history, leaders, stats, pools] = await Promise.all([
         api.get('/games/modes'), api.get('/rooms/active'), api.get('/rooms/public'), api.get('/tournaments'),
-        api.get('/games/history', { params: { pageSize: 5 } }), api.get('/leaderboard', { params: { period: 'weekly' } }), api.get('/users/me/stats'),
+        api.get('/games/history', { params: { pageSize: 5 } }), api.get('/leaderboard', { params: { period: 'weekly' } }), api.get('/users/me/stats'), api.get('/rooms/pools'),
       ]);
       setData({
-        modes: modes.data.items, active: active.data, rooms: rooms.data.items,
+        modes: modes.data.items, active: active.data, rooms: rooms.data.items, pools: pools.data.items,
         tournaments: tournaments.data.items.filter((t: { status: string }) => t.status === 'UPCOMING' || t.status === 'RUNNING').slice(0, 3),
         history: history.data.items, leaders: leaders.data.items.slice(0, 3), stats: stats.data,
       });
@@ -121,18 +123,27 @@ export default function HomePage() {
 
       {/* Play now */}
       <SectionTitle>Play now</SectionTitle>
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 gap-2">
         {[
           { label: 'Quick match', hint: 'Public', icon: 'bolt', tone: 'bg-accent text-[#2a1a00]', onClick: () => setPicker('quick') },
           { label: 'Create room', hint: 'Private', icon: 'plus', tone: 'bg-brand text-white', onClick: () => setPicker('room') },
           { label: 'Join by code', hint: 'Friends', icon: 'key', tone: 'bg-pink text-white', onClick: () => { setJoinOpen(true); setJoinError(''); } },
+          { label: 'Vs computer', hint: 'Free practice', icon: 'grid', tone: 'bg-emerald-500 text-white', onClick: () => setPicker('practice') },
         ].map((a) => (
-          <button key={a.label} onClick={a.onClick} className={`flex flex-col items-start gap-2 rounded-2xl p-3 text-left shadow-lg transition active:scale-95 ${a.tone}`}>
+          <button key={a.label} onClick={a.onClick} className={`flex items-center gap-3 rounded-2xl p-3 text-left shadow-lg transition active:scale-95 ${a.tone}`}>
             <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-black/15"><Icon name={a.icon} /></span>
             <span><span className="block text-sm font-extrabold leading-tight">{a.label}</span><span className="text-[10px] font-bold uppercase tracking-wider opacity-70">{a.hint}</span></span>
           </button>
         ))}
       </div>
+
+      {/* Prize pools */}
+      <SectionTitle action={<Link to="/pools" className="text-xs font-bold text-brand">See all</Link>}>Prize pools</SectionTitle>
+      {data.pools.length === 0 ? (
+        <Empty icon="trophy" title="No prize pools right now" hint="Use Quick match to find an opponent instead." />
+      ) : (
+        <div className="space-y-3">{data.pools.slice(0, 3).map((p) => <PoolCard key={p.id} pool={p} />)}</div>
+      )}
 
       {/* Game modes */}
       <SectionTitle action={<Link to="/rules" className="chip border border-line bg-surface text-brand"><Icon name="info" size={13} /> Rules</Link>}>Game modes</SectionTitle>
@@ -199,10 +210,10 @@ export default function HomePage() {
           {data.history.map((h) => (
             <div key={h.gameId} className="flex items-center justify-between px-4 py-3 text-sm">
               <div>
-                <p className="font-bold">{h.mode.name}</p>
+                <p className="font-bold">{h.mode.name}{h.isPractice && <span className="ml-2 chip bg-surface-2 text-muted">Practice</span>}</p>
                 <p className="text-xs text-muted">{timeAgo(h.playedAt)}</p>
               </div>
-              <span className={`font-extrabold ${h.isWinner ? 'text-emerald-500' : 'text-red-500'}`}>{h.isWinner ? `+${pts(h.pointsWon - h.entryPaid)}` : `-${pts(h.entryPaid)}`}</span>
+              <span className={`font-extrabold ${h.isWinner ? 'text-emerald-500' : 'text-red-500'}`}>{h.isPractice ? (h.isWinner ? 'Won' : 'Lost') : h.isWinner ? `+${pts(h.pointsWon - h.entryPaid)}` : `-${pts(h.entryPaid)}`}</span>
             </div>
           ))}
         </div>
@@ -228,13 +239,13 @@ export default function HomePage() {
       {/* More */}
       <SectionTitle>More</SectionTitle>
       <div className="grid grid-cols-2 gap-2">
-        {[['/refer', 'gift', 'Refer & earn'], ['/leaderboard', 'trophy', 'Leaderboard'], ['/rules', 'list', 'Game rules'], ['/help', 'help', 'Help & support'], ['/wallet', 'wallet', 'Transactions'], ['/profile', 'settings', 'Settings']].map(([to, icon, label]) => (
+        {[['/pools', 'trophy', 'Prize pools'], ['/refer', 'gift', 'Refer & earn'], ['/leaderboard', 'trophy', 'Leaderboard'], ['/rules', 'list', 'Game rules'], ['/help', 'help', 'Help & support'], ['/profile', 'settings', 'Settings']].map(([to, icon, label]) => (
           <Link key={to + label} to={to} className="card flex items-center gap-3 p-3 text-sm font-bold"><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-surface-2 text-brand"><Icon name={icon} size={18} /></span>{label}</Link>
         ))}
       </div>
 
       {/* Mode picker for quick match / create room */}
-      <Sheet open={picker !== null} onClose={() => setPicker(null)} title={picker === 'quick' ? 'Quick match – choose a mode' : 'Create room – choose a mode'}>
+      <Sheet open={picker !== null} onClose={() => setPicker(null)} title={picker === 'quick' ? 'Quick match – choose a game' : picker === 'practice' ? 'Play the computer – choose a game' : 'Create room – choose a game'}>
         <div className="space-y-2">
           {data.modes.map((m) => (
             <button key={m.key} onClick={() => { setSheet({ mode: m, intent: picker! }); setPicker(null); }} className={`flex w-full items-center justify-between rounded-2xl bg-gradient-to-r ${modeStyle(m.key).gradient} px-4 py-3 text-left text-white`}>

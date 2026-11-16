@@ -9,6 +9,7 @@ import LeaderboardPage from './pages/Leaderboard';
 import LivePage from './pages/Live';
 import LoginPage from './pages/Login';
 import NotificationsPage from './pages/Notifications';
+import PoolsPage from './pages/Pools';
 import ProfilePage from './pages/Profile';
 import ReferPage from './pages/Refer';
 import RoomPage from './pages/Room';
@@ -40,6 +41,7 @@ export default function App() {
           <Route index element={<HomePage />} />
           <Route path="/room/:code" element={<RoomPage />} />
           <Route path="/live" element={<LivePage />} />
+          <Route path="/pools" element={<PoolsPage />} />
           <Route path="/tournaments" element={<TournamentsPage />} />
           <Route path="/tournaments/:id" element={<TournamentDetailPage />} />
           <Route path="/wallet" element={<WalletPage />} />

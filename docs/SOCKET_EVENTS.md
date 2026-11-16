@@ -26,7 +26,7 @@ socket.emit('roll-dice', { gameId }, (res) => {
 | `player-ready` | `{ code, ready }` | Sets the caller's ready flag. |
 | `start-game` | `{ code }` | Host only, all players ready. Locks every entry and starts the game. Returns `{ gameId }`. |
 | `join-game` | `{ gameId }` | Subscribes to a running game and returns `{ gameId, state, serverTime }`. Players use it to resync after reconnecting; anyone else spectates read-only. |
-| `roll-dice` | `{ gameId }` | Rolls for the caller if it is their turn. Any dice value sent by the client is ignored. |
+| `roll-dice` | `{ gameId }` | Rolls for the caller if it is their turn. Any dice value sent by the client is ignored. In Snake & Ladder the piece also moves. |
 | `move-token` | `{ gameId, tokenIndex, dieIndex? }` | Moves token `0..3`. `dieIndex` selects the shared die in Pick Your Dice. Fails with `ILLEGAL_MOVE`, `NOT_YOUR_TURN`, `WRONG_PHASE`. |
 | `leave-game` | `{ gameId }` | Forfeits the game. |
 
@@ -69,5 +69,9 @@ socket.emit('roll-dice', { gameId }, (res) => {
 Token positions: `-10` yard, `0` start cell, `1..50` ring, `51..55` home column, `56` home
 (`-1` only in Kill to Enter: the ring cell before the start cell).
 
-Event types inside `game-state.events`: `roll`, `pool`, `no-move`, `three-sixes`, `move`, `kill`,
+Snake & Ladder games send `kind: "SNAKES"` with `board: { ladders, snakes }` and players that have
+`pos` (0 = start, 100 = finished) instead of `tokens`; their events are `roll`, `step`, `ladder`,
+`snake`, `no-move`, `three-sixes`, `turn`, `forfeit`, `finish`. Computer players have `bot: true`.
+
+Event types inside Ludo `game-state.events`: `roll`, `pool`, `no-move`, `three-sixes`, `move`, `kill`,
 `home`, `turn`, `forfeit`, `finish`.

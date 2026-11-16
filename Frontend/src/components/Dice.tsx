@@ -16,15 +16,18 @@ interface Props {
   selected?: boolean;
   dim?: boolean;
   color?: string;
+  /** Set with size={0} to let CSS size the die. */
+  className?: string;
 }
 
-export function Dice({ value, rolling, size = 64, active, selected, dim, color = '#7c5cff' }: Props) {
+export function Dice({ value, rolling, size = 64, active, selected, dim, color = '#7c5cff', className = '' }: Props) {
   return (
     <svg
-      width={size}
-      height={size}
+      width={size || undefined}
+      height={size || undefined}
       viewBox="0 0 100 100"
-      className={`${rolling ? 'dice-rolling' : ''} ${active ? 'glow rounded-2xl' : ''} transition-opacity`}
+      key={rolling ? 'rolling' : `v${value}`}
+      className={`${rolling ? 'dice-rolling' : value ? 'dice-landed' : ''} ${active ? 'glow rounded-2xl' : ''} ${className} transition-opacity`}
       style={{ opacity: dim ? 0.45 : 1 }}
       aria-hidden="true"
     >

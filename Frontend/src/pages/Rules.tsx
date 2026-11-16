@@ -7,6 +7,17 @@ import { useFetch } from '../lib/useFetch';
 /** Rule sheets are generated from the live rules configuration, so they never drift from the game. */
 function bullets(m: GameMode): string[] {
   const r = m.rules;
+  if (m.game === 'SNAKES') {
+    return [
+      'Everyone starts off the board and races from square 1 to square 100.',
+      'Tap the dice on your turn. The server rolls it and your piece moves by that number.',
+      'Land on the foot of a ladder and you climb to its top. Land on a snake\'s head and you slide down to its tail.',
+      r.extraTurnOnSix ? `A six gives you another roll${r.maxConsecutiveSixes ? `; ${r.maxConsecutiveSixes} sixes in a row end your turn` : ''}.` : 'A six gives no extra roll.',
+      r.exactFinish ? 'You need the exact number to land on 100. A bigger roll does not move you.' : 'Any roll that reaches or passes 100 finishes.',
+      'Pieces can share a square – nobody is captured.',
+      'The first player to reach 100 wins the prize.',
+    ];
+  }
   const out: string[] = [];
   out.push(r.sixToRelease ? 'Tokens start in the yard. Roll a six to bring one onto your start cell.' : 'All tokens start on the board, on your start cell.');
   out.push(r.dice === 'PICK' ? 'Three dice are shared by everyone. On your turn pick one die and move a token by it; that die is then re-rolled.' : 'Tap the dice on your turn. The server rolls it – nobody can influence the result.');

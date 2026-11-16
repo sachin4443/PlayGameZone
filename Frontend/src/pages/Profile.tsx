@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { AccountSecurity } from '../components/AccountSecurity';
 import { Avatar, AVATAR_IDS, Icon, Spinner } from '../components/ui';
 import { api, errorMessage } from '../lib/api';
 import type { Me } from '../lib/types';
@@ -79,6 +80,8 @@ export default function ProfilePage() {
           </div>
         </div>
       </section>
+
+      <AccountSecurity />
 
       <section className="card mt-5 divide-y divide-line">
         {[['/wallet', 'wallet', 'Transaction history'], ['/refer', 'gift', 'Refer & earn'], ['/leaderboard', 'trophy', 'Leaderboard'], ['/rules', 'list', 'Game rules'], ['/help', 'help', 'Help & support']].map(([to, icon, label]) => (

@@ -1,5 +1,5 @@
 /** Small original illustrations for the game-mode cards. */
-export function ModeArt({ kind, size = 84 }: { kind: 'board' | 'clock' | 'burst' | 'dice' | 'lock'; size?: number }) {
+export function ModeArt({ kind, size = 84 }: { kind: 'board' | 'clock' | 'burst' | 'dice' | 'lock' | 'snake'; size?: number }) {
   const common = { width: size, height: size, viewBox: '0 0 100 100', 'aria-hidden': true } as const;
   if (kind === 'board')
     return (
@@ -10,6 +10,17 @@ export function ModeArt({ kind, size = 84 }: { kind: 'board' | 'clock' | 'burst'
           <rect x="16" y="54" width="30" height="30" rx="8" fill="#3b82f6" /><rect x="54" y="54" width="30" height="30" rx="8" fill="#f5b800" />
           {[[31, 31], [69, 31], [31, 69], [69, 69]].map(([x, y]) => <circle key={`${x}${y}`} cx={x} cy={y} r="7" fill="#fff" />)}
         </g>
+      </svg>
+    );
+  if (kind === 'snake')
+    return (
+      <svg {...common}>
+        <g stroke="#fff" strokeWidth="5" strokeLinecap="round" opacity="0.95">
+          <path d="M22 88 40 14M44 88 62 14" />
+          {[76, 60, 44, 28].map((y, i) => <path key={y} d={`M${25 + i * 3.9} ${y}h22`} />)}
+        </g>
+        <path d="M84 16c-22 4-4 22-18 30s-2 22-16 26" stroke="#fde047" strokeWidth="10" strokeLinecap="round" fill="none" />
+        <circle cx="84" cy="16" r="8" fill="#fde047" /><circle cx="86" cy="14" r="2" fill="#14532d" />
       </svg>
     );
   if (kind === 'clock')
